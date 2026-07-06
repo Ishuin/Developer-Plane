@@ -1,5 +1,5 @@
 # Developer Control Plane — core dependencies (Tier 0, fully offline)
-watchdog>=4.0
+watchdog>=6.0  # <6 crashes on Python 3.13 (threading handle change)
 fastapi>=0.110
 uvicorn>=0.29
 pydantic>=2.6

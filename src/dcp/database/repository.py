@@ -248,16 +248,31 @@ class EventSourcingDB:
             (datetime.now().isoformat(), path),
         )
 
+    # Whitelisted ORDER BY clauses — never interpolate user input directly.
+    _PROJECT_SORTS = {
+        "path": "path ASC",
+        # Attention-first: red, yellow, green, then never-analyzed.
+        "health": (
+            "CASE status_health WHEN 'red' THEN 0 WHEN 'yellow' THEN 1 "
+            "WHEN 'green' THEN 2 ELSE 3 END ASC, path ASC"
+        ),
+        "activity": "last_activity DESC NULLS LAST, path ASC",
+        "analyzed": "analyzed_at DESC NULLS LAST, path ASC",
+    }
+
     def list_projects(
         self,
         limit: int = 25,
         offset: int = 0,
         search: Optional[str] = None,
         project_type: Optional[str] = None,
+        health: Optional[str] = None,
+        sort: str = "path",
     ) -> Tuple[List[Project], int]:
-        where, params = self._project_filter(search, project_type)
+        where, params = self._project_filter(search, project_type, health)
+        order = self._PROJECT_SORTS.get(sort, self._PROJECT_SORTS["path"])
         rows = self._query(
-            f"SELECT * FROM projects {where} ORDER BY path LIMIT ? OFFSET ?",  # noqa: S608
+            f"SELECT * FROM projects {where} ORDER BY {order} LIMIT ? OFFSET ?",  # noqa: S608
             tuple(params + [limit, offset]),
         )
         total = self._query(
@@ -265,6 +280,13 @@ class EventSourcingDB:
             tuple(params),
         )[0]["n"]
         return [Project(**dict(r)) for r in rows], total
+
+    def health_counts(self) -> Dict[str, int]:
+        rows = self._query(
+            "SELECT COALESCE(status_health, 'unanalyzed') AS h, COUNT(*) AS n "
+            "FROM projects GROUP BY h"
+        )
+        return {r["h"]: r["n"] for r in rows}
 
     def get_project(self, path: str) -> Optional[Project]:
         rows = self._query("SELECT * FROM projects WHERE path = ?", (path,))
@@ -290,7 +312,9 @@ class EventSourcingDB:
 
     @staticmethod
     def _project_filter(
-        search: Optional[str], project_type: Optional[str]
+        search: Optional[str],
+        project_type: Optional[str],
+        health: Optional[str] = None,
     ) -> Tuple[str, List[Any]]:
         clauses, params = [], []
         if search:
@@ -299,6 +323,11 @@ class EventSourcingDB:
         if project_type:
             clauses.append("type = ?")
             params.append(project_type)
+        if health == "unanalyzed":
+            clauses.append("status_health IS NULL")
+        elif health:
+            clauses.append("status_health = ?")
+            params.append(health)
         return ("WHERE " + " AND ".join(clauses)) if clauses else "", params
 
     # ----------------------------------------------------------------- mapping

@@ -1,5 +1,6 @@
 """FastAPI application factory."""
 
+import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -20,6 +21,10 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         state: AppState = build_state(settings)
         app.state.dcp = state
+        roots = [r.strip() for r in settings.watch_roots.split(",") if r.strip()]
+        valid_roots = [r for r in roots if os.path.isdir(r)]
+        if valid_roots:
+            state.watcher.start(valid_roots)
         yield
         state.watcher.stop()
         state.db.close()

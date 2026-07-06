@@ -120,6 +120,19 @@
     <button class="btn" id="analyzeBtn" onclick="runAnalysis()" title="Write project_status.md into every project">Analyze All</button>
     <input type="text" id="searchBox" placeholder="Filter by path…" oninput="debouncedProjects()">
     <select id="typeFilter" onchange="state.projects.page=1; loadProjects()"><option value="">All types</option></select>
+    <select id="healthFilter" onchange="state.projects.page=1; loadProjects()">
+      <option value="">All health</option>
+      <option value="red">Red</option>
+      <option value="yellow">Yellow</option>
+      <option value="green">Green</option>
+      <option value="unanalyzed">Unanalyzed</option>
+    </select>
+    <select id="sortOrder" onchange="state.projects.page=1; loadProjects()">
+      <option value="path">Sort: path</option>
+      <option value="health">Sort: needs attention</option>
+      <option value="activity">Sort: recent activity</option>
+      <option value="analyzed">Sort: recently analyzed</option>
+    </select>
   </div>
   <div id="scanStatus"><span class="spinner"></span><span id="scanStatusText">Scanning…</span></div>
   <div class="scroll"><table>
@@ -214,9 +227,13 @@ async function loadProjects() {
   const p = state.projects;
   const search = document.getElementById('searchBox').value.trim();
   const type = document.getElementById('typeFilter').value;
+  const health = document.getElementById('healthFilter').value;
+  const sort = document.getElementById('sortOrder').value;
   const params = new URLSearchParams({ page: p.page, page_size: p.pageSize });
   if (search) params.set('search', search);
   if (type) params.set('type', type);
+  if (health) params.set('health', health);
+  if (sort !== 'path') params.set('sort', sort);
   const data = await api('/api/projects?' + params);
   p.total = data.total;
   const rows = data.items.map(pr => `

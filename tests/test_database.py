@@ -75,6 +75,27 @@ def test_project_search_and_type_filter(db):
     assert db.project_types() == ["Go", "Python"]
 
 
+def test_project_health_filter_and_sort(db):
+    db.upsert_project("/h/red", "Python")
+    db.upsert_project("/h/green", "Python")
+    db.upsert_project("/h/fresh", "Python")
+    db.set_project_status("/h/red", "broken build", "red")
+    db.set_project_status("/h/green", "healthy", "green")
+
+    items, total = db.list_projects(health="red")
+    assert total == 1 and items[0].path == "/h/red"
+
+    items, total = db.list_projects(health="unanalyzed")
+    assert total == 1 and items[0].path == "/h/fresh"
+
+    # Attention-first sort: red, green, then unanalyzed.
+    items, _ = db.list_projects(sort="health")
+    assert [p.path for p in items] == ["/h/red", "/h/green", "/h/fresh"]
+
+    counts = db.health_counts()
+    assert counts == {"red": 1, "green": 1, "unanalyzed": 1}
+
+
 def test_project_list_pagination(db):
     for i in range(45):
         db.upsert_project(f"/p/{i:03d}", "Python")

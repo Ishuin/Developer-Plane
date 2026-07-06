@@ -23,6 +23,8 @@ def list_projects(
     page_size: int = Query(0, ge=0),
     search: Optional[str] = None,
     type: Optional[str] = None,
+    health: Optional[str] = Query(None, pattern="^(green|yellow|red|unanalyzed)$"),
+    sort: str = Query("path", pattern="^(path|health|activity|analyzed)$"),
 ):
     state = _state(request)
     if page_size <= 0:
@@ -33,8 +35,15 @@ def list_projects(
         offset=(page - 1) * page_size,
         search=search,
         project_type=type,
+        health=health,
+        sort=sort,
     )
     return Page[Project](items=items, page=page, page_size=page_size, total=total)
+
+
+@router.get("/health_counts")
+def health_counts(request: Request):
+    return {"counts": _state(request).db.health_counts()}
 
 
 @router.get("/types")

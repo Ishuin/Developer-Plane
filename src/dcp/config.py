@@ -35,6 +35,11 @@ class Settings:
         default_factory=lambda: os.environ.get("DCP_LLM_MODEL", "")
     )
 
+    # Comma-separated roots to auto-watch on server start ("" = off).
+    watch_roots: str = field(
+        default_factory=lambda: os.environ.get("DCP_WATCH_ROOTS", "")
+    )
+
     # Parallel workers for the project status analysis batch.
     analysis_workers: int = field(
         default_factory=lambda: int(os.environ.get("DCP_ANALYSIS_WORKERS", "4"))

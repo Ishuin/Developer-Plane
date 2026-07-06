@@ -165,6 +165,29 @@ def test_analysis_endpoints(client, sample_tree):
     assert "Project Status" in report.text
 
 
+def test_health_filter_and_sort_params(client, sample_tree):
+    client.post(
+        "/api/projects/scan", params={"path": str(sample_tree), "wait": True}
+    )
+    py_proj = str(sample_tree / "py_proj")
+    client.post("/api/analysis/project", params={"path": py_proj})
+
+    analyzed = client.get("/api/projects", params={"health": "unanalyzed"}).json()
+    assert all(p["status_health"] is None for p in analyzed["items"])
+    assert analyzed["total"] >= 2  # everything except py_proj
+
+    sorted_res = client.get("/api/projects", params={"sort": "health"}).json()
+    healths = [p["status_health"] for p in sorted_res["items"]]
+    # Analyzed rows come before unanalyzed ones.
+    assert healths.index(None if None in healths else healths[-1]) >= 1
+
+    counts = client.get("/api/projects/health_counts").json()["counts"]
+    assert counts.get("unanalyzed", 0) >= 2
+
+    bad = client.get("/api/projects", params={"health": "purple"})
+    assert bad.status_code == 422
+
+
 def test_analyze_single_project(client, sample_tree):
     py_proj = str(sample_tree / "py_proj")
     res = client.post("/api/analysis/project", params={"path": py_proj})
