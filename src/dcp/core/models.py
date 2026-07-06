@@ -16,6 +16,23 @@ class Project(BaseModel):
     status_headline: Optional[str] = None
     status_health: Optional[str] = None
     analyzed_at: Optional[str] = None
+    completion_percent: Optional[float] = None
+    completion_source: Optional[str] = None
+    automation_enabled: int = 0
+
+
+class AgentRun(BaseModel):
+    """A proposed (never auto-committed) coding-agent run on a project."""
+
+    id: Optional[int] = None
+    project_id: str
+    started_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    finished_at: Optional[str] = None
+    exit_code: Optional[int] = None
+    task_brief: str = ""
+    diff_stat: str = ""
+    report: str = ""
+    verdict: Optional[str] = None  # approved | discarded | None = pending
 
 
 class Signal(BaseModel):

@@ -3,11 +3,14 @@
 from dataclasses import dataclass
 
 from dcp.agents import HealthCheckAgent, LangGraphAdvisorAgent
+from dcp.agents.executor import CodeAgentExecutor
 from dcp.agents.status_agent import StatusReportAgent
 from dcp.config import Settings
 from dcp.cortex import (
     AgentRouter,
     AnalysisManager,
+    AutopilotManager,
+    CompletionEngine,
     ContextAssembler,
     StageInferenceEngine,
 )
@@ -26,6 +29,8 @@ class AppState:
     assembler: ContextAssembler
     router: AgentRouter
     analysis: AnalysisManager
+    completion: CompletionEngine
+    autopilot: AutopilotManager
 
 
 def build_state(settings: Settings) -> AppState:
@@ -38,6 +43,7 @@ def build_state(settings: Settings) -> AppState:
     discovery = ProjectDiscovery(db)
     inference = StageInferenceEngine(db, settings.confidence_half_life_days)
     assembler = ContextAssembler(db)
+    completion = CompletionEngine(db)
     return AppState(
         settings=settings,
         db=db,
@@ -50,5 +56,9 @@ def build_state(settings: Settings) -> AppState:
         analysis=AnalysisManager(
             db, status_agent, inference, assembler,
             max_workers=settings.analysis_workers,
+        ),
+        completion=completion,
+        autopilot=AutopilotManager(
+            db, CodeAgentExecutor(settings), completion, inference, assembler,
         ),
     )

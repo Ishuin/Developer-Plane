@@ -198,6 +198,47 @@ def test_analyze_single_project(client, sample_tree):
     assert (sample_tree / "py_proj" / "project_status.md").is_file()
 
 
+def test_autopilot_endpoints(client, sample_tree):
+    client.post(
+        "/api/projects/scan", params={"path": str(sample_tree), "wait": True}
+    )
+    py_proj = str(sample_tree / "py_proj")
+
+    # Score, enable, queue.
+    res = client.post("/api/completion/evaluate", params={"path": py_proj})
+    assert res.status_code == 200
+    assert res.json()["source"] == "heuristic"
+
+    res = client.post("/api/autopilot/enable", json={"path": py_proj, "enabled": True})
+    assert res.status_code == 200
+
+    queue = client.get("/api/autopilot/queue").json()["queue"]
+    assert [p["path"] for p in queue] == [py_proj]
+    assert queue[0]["completion_percent"] is not None
+
+    # Unknown project → 404.
+    res = client.post("/api/autopilot/enable", json={"path": "Z:/nope", "enabled": True})
+    assert res.status_code == 404
+
+    # Runs list empty, status idle.
+    assert client.get("/api/autopilot/runs").json()["total"] == 0
+    assert client.get("/api/autopilot/status").json()["running"] is False
+
+    # Verdict on missing run → 404.
+    assert client.post("/api/autopilot/runs/999/approve").status_code == 404
+
+
+def test_completion_evaluate_all(client, sample_tree):
+    client.post(
+        "/api/projects/scan", params={"path": str(sample_tree), "wait": True}
+    )
+    res = client.post("/api/completion/evaluate_all")
+    assert res.status_code == 200
+    assert res.json()["evaluated"] >= 3
+    items = client.get("/api/projects").json()["items"]
+    assert all(p["completion_percent"] is not None for p in items)
+
+
 def test_ui_served_at_root(client):
     res = client.get("/")
     assert res.status_code == 200

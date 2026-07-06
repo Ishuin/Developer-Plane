@@ -45,6 +45,21 @@ class Settings:
         default_factory=lambda: int(os.environ.get("DCP_ANALYSIS_WORKERS", "4"))
     )
 
+    # Autopilot: headless coding-agent command template. {brief_file} is
+    # replaced with the path to the task brief written for the run.
+    agent_cmd: str = field(
+        default_factory=lambda: os.environ.get(
+            "DCP_AGENT_CMD",
+            'claude -p "$(cat {brief_file})" --permission-mode acceptEdits',
+        )
+    )
+    agent_timeout: int = field(
+        default_factory=lambda: int(os.environ.get("DCP_AGENT_TIMEOUT", "900"))
+    )
+    autopilot_workers: int = field(
+        default_factory=lambda: int(os.environ.get("DCP_AUTOPILOT_WORKERS", "1"))
+    )
+
     # Confidence decay: stage confidence halves after this many idle days.
     confidence_half_life_days: float = field(
         default_factory=lambda: float(os.environ.get("DCP_HALF_LIFE_DAYS", "14"))

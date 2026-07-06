@@ -11,7 +11,7 @@ import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from dcp.core.models import Decision, Inference, Project, Signal
+from dcp.core.models import AgentRun, Decision, Inference, Project, Signal
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS raw_signals (
@@ -67,11 +67,28 @@ class EventSourcingDB:
             ("status_headline", "ALTER TABLE projects ADD COLUMN status_headline TEXT"),
             ("status_health", "ALTER TABLE projects ADD COLUMN status_health TEXT"),
             ("analyzed_at", "ALTER TABLE projects ADD COLUMN analyzed_at TEXT"),
+            ("completion_percent", "ALTER TABLE projects ADD COLUMN completion_percent REAL"),
+            ("completion_source", "ALTER TABLE projects ADD COLUMN completion_source TEXT"),
+            ("automation_enabled",
+             "ALTER TABLE projects ADD COLUMN automation_enabled INTEGER NOT NULL DEFAULT 0"),
         ):
             try:
                 self._execute(ddl)
             except sqlite3.OperationalError:
                 pass  # column already exists
+        self._execute("""
+            CREATE TABLE IF NOT EXISTS agent_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                exit_code INTEGER,
+                task_brief TEXT,
+                diff_stat TEXT,
+                report TEXT,
+                verdict TEXT
+            )
+        """)
 
     def close(self) -> None:
         with self._lock:
@@ -299,6 +316,87 @@ class EventSourcingDB:
             "UPDATE projects SET status_headline = ?, status_health = ?, "
             "analyzed_at = ? WHERE path = ?",
             (headline, health, datetime.now().isoformat(), path),
+        )
+
+    def set_project_completion(self, path: str, percent: float, source: str) -> None:
+        self._execute(
+            "UPDATE projects SET completion_percent = ?, completion_source = ? "
+            "WHERE path = ?",
+            (percent, source, path),
+        )
+
+    def set_automation(self, path: str, enabled: bool) -> None:
+        self._execute(
+            "UPDATE projects SET automation_enabled = ? WHERE path = ?",
+            (1 if enabled else 0, path),
+        )
+
+    def autopilot_queue(self, limit: int = 50) -> List[Project]:
+        """Automation-enabled projects, closest-to-done first, red tiebreak."""
+        rows = self._query(
+            "SELECT * FROM projects WHERE automation_enabled = 1 "
+            "ORDER BY completion_percent DESC NULLS LAST, "
+            "CASE status_health WHEN 'red' THEN 0 WHEN 'yellow' THEN 1 "
+            "WHEN 'green' THEN 2 ELSE 3 END ASC, path ASC LIMIT ?",
+            (limit,),
+        )
+        return [Project(**dict(r)) for r in rows]
+
+    # ------------------------------------------------------------ agent runs
+    def insert_agent_run(self, run: AgentRun) -> AgentRun:
+        cur = self._execute(
+            "INSERT INTO agent_runs (project_id, started_at, finished_at, "
+            "exit_code, task_brief, diff_stat, report, verdict) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (run.project_id, run.started_at, run.finished_at, run.exit_code,
+             run.task_brief, run.diff_stat, run.report, run.verdict),
+        )
+        run.id = cur.lastrowid
+        return run
+
+    def get_agent_runs(
+        self, limit: int = 25, offset: int = 0,
+        project_id: Optional[str] = None, pending_only: bool = False,
+    ) -> List[AgentRun]:
+        sql = "SELECT * FROM agent_runs"
+        clauses, params = [], []
+        if project_id:
+            clauses.append("project_id = ?")
+            params.append(project_id)
+        if pending_only:
+            clauses.append("verdict IS NULL AND finished_at IS NOT NULL")
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+        params += [limit, offset]
+        return [AgentRun(**dict(r)) for r in self._query(sql, tuple(params))]
+
+    def count_agent_runs(self, project_id: Optional[str] = None) -> int:
+        if project_id:
+            rows = self._query(
+                "SELECT COUNT(*) AS n FROM agent_runs WHERE project_id = ?",
+                (project_id,),
+            )
+        else:
+            rows = self._query("SELECT COUNT(*) AS n FROM agent_runs")
+        return rows[0]["n"]
+
+    def get_agent_run(self, run_id: int) -> Optional[AgentRun]:
+        rows = self._query("SELECT * FROM agent_runs WHERE id = ?", (run_id,))
+        return AgentRun(**dict(rows[0])) if rows else None
+
+    def finish_agent_run(
+        self, run_id: int, exit_code: int, diff_stat: str, report: str
+    ) -> None:
+        self._execute(
+            "UPDATE agent_runs SET finished_at = ?, exit_code = ?, "
+            "diff_stat = ?, report = ? WHERE id = ?",
+            (datetime.now().isoformat(), exit_code, diff_stat, report, run_id),
+        )
+
+    def set_run_verdict(self, run_id: int, verdict: str) -> None:
+        self._execute(
+            "UPDATE agent_runs SET verdict = ? WHERE id = ?", (verdict, run_id)
         )
 
     def clear_projects(self) -> int:

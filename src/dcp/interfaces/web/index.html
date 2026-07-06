@@ -83,6 +83,15 @@
   .dot.yellow { background: var(--warn); }
   .dot.red { background: #dc2626; }
   .status-cell { font-size: 13px; color: var(--muted); }
+  .bar { display: inline-block; width: 90px; height: 6px; border-radius: 3px;
+         background: var(--border); vertical-align: 2px; margin-right: 8px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .verdict-approved { color: var(--ok); }
+  .verdict-discarded { color: var(--muted); text-decoration: line-through; }
+  .run-report { display: none; }
+  .run-report.open { display: table-row; }
+  .run-report pre { font-family: var(--mono); font-size: 12px; white-space: pre-wrap;
+                    color: var(--muted); max-height: 240px; overflow-y: auto; margin: 0; }
 
   .pager { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 10px; font-size: 13px; color: var(--muted); }
   .pager button { padding: 4px 10px; }
@@ -109,6 +118,7 @@
   <button data-tab="inferences">Inferences</button>
   <button data-tab="decisions">Decisions</button>
   <button data-tab="agents">Agents</button>
+  <button data-tab="autopilot">Autopilot</button>
 </nav>
 
 <!-- Projects -->
@@ -190,6 +200,29 @@
   </div>
 </section>
 
+<!-- Autopilot -->
+<section class="panel" id="panel-autopilot">
+  <div class="toolbar">
+    <button class="btn" onclick="evalAll()" title="Compute completion % for every project">Score All</button>
+    <button class="btn primary" id="runTopBtn" onclick="runTop()">Run Top</button>
+    <select id="runLimit"><option>1</option><option selected>3</option><option>5</option></select>
+    <span class="muted" style="font-size:13px; align-self:center;">
+      Propose-only: agents never commit; approve or discard each run below.
+    </span>
+  </div>
+  <div id="apStatus" class="muted" style="font-size:13px; margin-bottom:10px;"></div>
+  <h3 style="font-size:14px; margin: 6px 0;">Priority queue (completion-first)</h3>
+  <div class="scroll" style="max-height:32vh;"><table>
+    <thead><tr><th style="width:44%">Project</th><th>Completion</th><th>Health</th><th>Automation</th></tr></thead>
+    <tbody id="queueRows"><tr><td colspan="4" class="empty">Enable automation on projects to build the queue.</td></tr></tbody>
+  </table></div>
+  <h3 style="font-size:14px; margin: 14px 0 6px;">Agent runs</h3>
+  <div class="scroll" style="max-height:34vh;"><table>
+    <thead><tr><th>Run</th><th style="width:32%">Project</th><th>Exit</th><th style="width:24%">Changes</th><th>Verdict</th></tr></thead>
+    <tbody id="runRows"><tr><td colspan="5" class="empty">No runs yet.</td></tr></tbody>
+  </table></div>
+</section>
+
 <script>
 const state = {
   projects: { page: 1, pageSize: 25 },
@@ -213,6 +246,7 @@ document.getElementById('tabs').addEventListener('click', e => {
   document.getElementById('panel-' + tab).classList.add('active');
   if (tab === 'projects') loadProjects();
   else if (tab === 'agents') loadAgents();
+  else if (tab === 'autopilot') loadAutopilot();
   else loadTrinity(tab);
 });
 
@@ -242,7 +276,8 @@ async function loadProjects() {
       <td><span class="tag">${esc(pr.type)}</span></td>
       <td class="status-cell">${pr.status_headline
         ? `<span class="dot ${esc(pr.status_health || '')}"></span>${esc(pr.status_headline)}`
-        : '<span class="muted">—</span>'}</td>
+        : '<span class="muted">—</span>'}${pr.completion_percent != null
+        ? ` <span class="mono muted">· ${Math.round(pr.completion_percent)}%</span>` : ''}</td>
       <td class="muted">${fmtTime(pr.last_activity)}</td>
     </tr>`).join('');
   document.getElementById('projectRows').innerHTML =
@@ -409,7 +444,9 @@ async function showDetail(path) {
          ${genome.has_ci ? '<span class="tag">ci</span>' : ''}
          ${genome.has_dockerfile ? '<span class="tag">docker</span>' : ''}
          <button class="btn" style="padding:3px 10px; font-size:12px;"
-           onclick="event.stopPropagation(); analyzeOne('${safePath}')">Analyze</button></p>
+           onclick="event.stopPropagation(); analyzeOne('${safePath}')">Analyze</button>
+         <label style="font-size:12px; color:var(--muted); margin-left:6px;">
+           <input type="checkbox" onchange="toggleAuto('${safePath}', this.checked)"> automate</label></p>
       <ul>${stage.evidence.map(e => `<li>${esc(e)}</li>`).join('')}</ul>
       <pre>${esc(JSON.stringify(genome.git, null, 2))}</pre>
       ${reportHtml}`;
@@ -469,6 +506,108 @@ async function runAgent() {
   } catch (err) {
     out.innerHTML = '<span class="muted">Error: ' + esc(err.message) + '</span>';
   }
+}
+
+/* Autopilot */
+let apPoll = null;
+const pathArg = p => esc(p).replaceAll('\\', '\\\\').replaceAll("'", "\\'");
+
+async function loadAutopilot() {
+  const [q, r] = await Promise.all([
+    api('/api/autopilot/queue?limit=50'),
+    api('/api/autopilot/runs?page=1&page_size=25'),
+  ]);
+  document.getElementById('queueRows').innerHTML = q.queue.map(p => `
+    <tr>
+      <td class="mono">${esc(p.path)}</td>
+      <td><span class="bar"><i style="width:${Math.round(p.completion_percent || 0)}%"></i></span>
+          <span class="mono">${p.completion_percent != null ? Math.round(p.completion_percent) + '%' : '—'}</span></td>
+      <td><span class="dot ${esc(p.status_health || '')}"></span>${esc(p.status_health || '—')}</td>
+      <td><input type="checkbox" checked onchange="toggleAuto('${pathArg(p.path)}', this.checked)"></td>
+    </tr>`).join('')
+    || '<tr><td colspan="4" class="empty">Queue empty — enable automation on projects (Projects tab detail, or POST /api/autopilot/enable).</td></tr>';
+
+  document.getElementById('runRows').innerHTML = r.items.map(run => {
+    const verdict = run.verdict
+      ? `<span class="verdict-${esc(run.verdict)}">${esc(run.verdict)}</span>`
+      : (run.finished_at
+        ? `<button class="btn" style="padding:2px 8px;font-size:12px;" onclick="verdict(${run.id},'approve')">Approve</button>
+           <button class="btn" style="padding:2px 8px;font-size:12px;" onclick="verdict(${run.id},'discard')">Discard</button>`
+        : '<span class="muted">running…</span>');
+    return `
+    <tr class="row" onclick="document.getElementById('rep${run.id}').classList.toggle('open')">
+      <td class="mono">#${run.id}<br><span class="muted">${fmtTime(run.started_at)}</span></td>
+      <td class="mono">${esc(run.project_id)}</td>
+      <td class="mono">${run.exit_code ?? '…'}</td>
+      <td class="mono muted">${esc(run.diff_stat || 'no changes')}</td>
+      <td onclick="event.stopPropagation()">${verdict}</td>
+    </tr>
+    <tr class="run-report" id="rep${run.id}"><td colspan="5"><pre>${esc(run.report || '')}</pre></td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="empty">No runs yet.</td></tr>';
+}
+
+async function toggleAuto(path, enabled) {
+  await api('/api/autopilot/enable', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, enabled }),
+  });
+  loadAutopilot();
+}
+
+async function evalAll() {
+  document.getElementById('apStatus').textContent = 'Scoring all projects…';
+  const res = await api('/api/completion/evaluate_all', { method: 'POST' });
+  document.getElementById('apStatus').textContent =
+    `Scored ${res.evaluated} project(s), ${res.errors} error(s).`;
+  loadAutopilot();
+}
+
+async function runTop() {
+  const limit = parseInt(document.getElementById('runLimit').value, 10);
+  try {
+    await api('/api/autopilot/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit }),
+    });
+  } catch (err) {
+    if (!String(err.message).includes('running')) {
+      document.getElementById('apStatus').textContent = 'error: ' + err.message;
+      return;
+    }
+  }
+  document.getElementById('runTopBtn').disabled = true;
+  if (apPoll) clearInterval(apPoll);
+  apPoll = setInterval(pollAutopilot, 2000);
+  pollAutopilot();
+}
+
+async function pollAutopilot() {
+  const s = await api('/api/autopilot/status');
+  await loadAutopilot();
+  if (s.running) {
+    document.getElementById('apStatus').innerHTML =
+      `<span class="spinner"></span> Running agents… ${s.done + s.failed + s.skipped}/${s.total}` +
+      (s.current ? ` — current: ${esc(s.current)}` : '');
+    return;
+  }
+  clearInterval(apPoll);
+  apPoll = null;
+  document.getElementById('runTopBtn').disabled = false;
+  document.getElementById('apStatus').textContent = s.total
+    ? `Batch finished: ${s.done} done, ${s.skipped} skipped, ${s.failed} failed.`
+    : '';
+}
+
+async function verdict(id, action) {
+  try {
+    const res = await api(`/api/autopilot/runs/${id}/${action}`, { method: 'POST' });
+    if (action === 'discard' && res.reverted === false) {
+      alert('Discard recorded but revert had errors: ' + (res.errors || 'unknown'));
+    }
+  } catch (err) {
+    alert('Verdict failed: ' + err.message);
+  }
+  loadAutopilot();
 }
 
 /* Init */
