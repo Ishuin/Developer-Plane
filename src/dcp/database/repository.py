@@ -346,13 +346,24 @@ class EventSourcingDB:
             (1 if enabled else 0, path),
         )
 
+    _QUEUE_ORDER = (
+        "ORDER BY completion_percent DESC NULLS LAST, "
+        "CASE status_health WHEN 'red' THEN 0 WHEN 'yellow' THEN 1 "
+        "WHEN 'green' THEN 2 ELSE 3 END ASC, path ASC LIMIT ?"
+    )
+
     def autopilot_queue(self, limit: int = 50) -> List[Project]:
         """Automation-enabled projects, closest-to-done first, red tiebreak."""
         rows = self._query(
-            "SELECT * FROM projects WHERE automation_enabled = 1 "
-            "ORDER BY completion_percent DESC NULLS LAST, "
-            "CASE status_health WHEN 'red' THEN 0 WHEN 'yellow' THEN 1 "
-            "WHEN 'green' THEN 2 ELSE 3 END ASC, path ASC LIMIT ?",
+            f"SELECT * FROM projects WHERE automation_enabled = 1 {self._QUEUE_ORDER}",  # noqa: S608
+            (limit,),
+        )
+        return [Project(**dict(r)) for r in rows]
+
+    def ranked_projects(self, limit: int = 200) -> List[Project]:
+        """Every project in completion-priority order (the score rank list)."""
+        rows = self._query(
+            f"SELECT * FROM projects {self._QUEUE_ORDER}",  # noqa: S608
             (limit,),
         )
         return [Project(**dict(r)) for r in rows]

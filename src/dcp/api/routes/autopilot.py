@@ -43,8 +43,16 @@ def evaluate_all(request: Request):
 
 # ----------------------------------------------------------------------- queue
 @router.get("/queue")
-def queue(request: Request, limit: int = Query(20, ge=1, le=200)):
-    return {"queue": [p.model_dump() for p in _state(request).db.autopilot_queue(limit)]}
+def queue(
+    request: Request,
+    limit: int = Query(20, ge=1, le=500),
+    all: bool = False,
+):
+    """Ranked queue. all=true returns every project (the score rank list);
+    default returns only automation-enabled projects (what Run Top uses)."""
+    db = _state(request).db
+    items = db.ranked_projects(limit) if all else db.autopilot_queue(limit)
+    return {"queue": [p.model_dump() for p in items]}
 
 
 class EnableRequest(BaseModel):

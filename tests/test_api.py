@@ -216,6 +216,13 @@ def test_autopilot_endpoints(client, sample_tree):
     assert [p["path"] for p in queue] == [py_proj]
     assert queue[0]["completion_percent"] is not None
 
+    # all=true returns the full score rank list, enabled or not.
+    ranked = client.get("/api/autopilot/queue", params={"all": True}).json()["queue"]
+    assert len(ranked) >= 3
+    assert any(not p["automation_enabled"] for p in ranked)
+    # Scored project ranks above unscored ones.
+    assert ranked[0]["path"] == py_proj
+
     # Unknown project → 404.
     res = client.post("/api/autopilot/enable", json={"path": "Z:/nope", "enabled": True})
     assert res.status_code == 404

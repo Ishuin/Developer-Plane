@@ -617,18 +617,25 @@ const pathArg = p => esc(p).replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 
 async function loadAutopilot() {
   const [q, r] = await Promise.all([
-    api('/api/autopilot/queue?limit=50'),
+    api('/api/autopilot/queue?limit=300&all=true'),
     api('/api/autopilot/runs?page=1&page_size=25'),
   ]);
-  document.getElementById('queueRows').innerHTML = q.queue.map(p => `
-    <tr>
-      <td class="mono">${esc(p.path)}</td>
+  const enabledCount = q.queue.filter(p => p.automation_enabled).length;
+  document.getElementById('queueRows').innerHTML = q.queue.map((p, i) => `
+    <tr${p.automation_enabled ? '' : ' style="opacity:0.55"'}>
+      <td class="mono">#${i + 1} ${esc(p.path)}
+        ${p.kind === 'library' ? '<span class="tag kind-library">library · read-only</span>' : ''}</td>
       <td><span class="bar"><i style="width:${Math.round(p.completion_percent || 0)}%"></i></span>
           <span class="mono">${p.completion_percent != null ? Math.round(p.completion_percent) + '%' : '—'}</span></td>
       <td><span class="dot ${esc(p.status_health || '')}"></span>${esc(p.status_health || '—')}</td>
-      <td><input type="checkbox" checked onchange="toggleAuto('${pathArg(p.path)}', this.checked)"></td>
+      <td>${p.kind === 'library' ? '<span class="muted">—</span>'
+        : `<input type="checkbox" ${p.automation_enabled ? 'checked' : ''}
+             onchange="toggleAuto('${pathArg(p.path)}', this.checked)">`}</td>
     </tr>`).join('')
-    || '<tr><td colspan="4" class="empty">Queue empty — enable automation on projects (Projects tab detail, or POST /api/autopilot/enable).</td></tr>';
+    || '<tr><td colspan="4" class="empty">No projects scored yet — run a Scan, then Score All.</td></tr>';
+  document.getElementById('runTopBtn').title = enabledCount
+    ? `${enabledCount} project(s) enabled for automation`
+    : 'No projects enabled — tick Automation checkboxes first';
 
   document.getElementById('runRows').innerHTML = r.items.map(run => {
     const verdict = run.verdict
@@ -698,7 +705,7 @@ async function pollAutopilot() {
   document.getElementById('runTopBtn').disabled = false;
   document.getElementById('apStatus').textContent = s.total
     ? `Batch finished: ${s.done} done, ${s.skipped} skipped, ${s.failed} failed.`
-    : '';
+    : 'Nothing to run — no automation-enabled projects. Tick an Automation checkbox in the queue, then Run Top.';
 }
 
 async function verdict(id, action) {
