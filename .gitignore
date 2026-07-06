@@ -91,3 +91,4 @@ llm_connection_testing_curl.txt
 graphify-out/
 .omc/
 project_status.md
+.dcp_server.pid
