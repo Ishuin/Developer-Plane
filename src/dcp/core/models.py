@@ -13,6 +13,9 @@ class Project(BaseModel):
     type: str = "Unknown"
     discovered_at: Optional[str] = None
     last_activity: Optional[str] = None
+    status_headline: Optional[str] = None
+    status_health: Optional[str] = None
+    analyzed_at: Optional[str] = None
 
 
 class Signal(BaseModel):

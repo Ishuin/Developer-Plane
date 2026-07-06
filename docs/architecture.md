@@ -18,6 +18,7 @@ Everything flows through three immutable layers (see [[database]]):
 | `dcp.database` | [[database]] | SQLite event store + projects projection |
 | `dcp.sentry` | [[sentry]] | Filesystem watching, discovery, genome |
 | `dcp.cortex` | [[cortex]] | Stage inference, context assembly, agent routing |
+| `dcp.cortex.analysis` | [[analysis]] | Parallel status analysis → project_status.md |
 | `dcp.agents` | [[agents]] | Tier 0 heuristics + Tier 1 LangGraph |
 | `dcp.api` | [[api]] | FastAPI REST layer (thin) |
 | `dcp.interfaces` | [[interfaces]] | Web UI + TUI (thin clients) |

@@ -59,6 +59,19 @@ class EventSourcingDB:
         with self._lock:
             self._conn.executescript(_SCHEMA)
             self._conn.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Additive migrations for databases created by older versions."""
+        for column, ddl in (
+            ("status_headline", "ALTER TABLE projects ADD COLUMN status_headline TEXT"),
+            ("status_health", "ALTER TABLE projects ADD COLUMN status_health TEXT"),
+            ("analyzed_at", "ALTER TABLE projects ADD COLUMN analyzed_at TEXT"),
+        ):
+            try:
+                self._execute(ddl)
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     def close(self) -> None:
         with self._lock:
@@ -256,6 +269,15 @@ class EventSourcingDB:
     def get_project(self, path: str) -> Optional[Project]:
         rows = self._query("SELECT * FROM projects WHERE path = ?", (path,))
         return Project(**dict(rows[0])) if rows else None
+
+    def set_project_status(
+        self, path: str, headline: str, health: str
+    ) -> None:
+        self._execute(
+            "UPDATE projects SET status_headline = ?, status_health = ?, "
+            "analyzed_at = ? WHERE path = ?",
+            (headline, health, datetime.now().isoformat(), path),
+        )
 
     def clear_projects(self) -> int:
         """Empty the projects projection (the event log stays intact)."""

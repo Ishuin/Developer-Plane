@@ -136,6 +136,45 @@ def test_advisor_falls_back_when_ai_disabled(client, sample_tree):
     assert res.json()["agent"] == "health-check"
 
 
+def test_analysis_endpoints(client, sample_tree):
+    import time
+
+    client.post(
+        "/api/projects/scan", params={"path": str(sample_tree), "wait": True}
+    )
+
+    res = client.post("/api/analysis/start", json={})
+    assert res.status_code == 200
+    for _ in range(100):
+        status = client.get("/api/analysis/status").json()
+        if not status["running"]:
+            break
+        time.sleep(0.1)
+    assert status["running"] is False
+    assert status["done"] >= 3
+
+    # Listing now carries status columns.
+    items = client.get("/api/projects").json()["items"]
+    assert all(p["status_headline"] for p in items)
+    assert all(p["status_health"] in ("green", "yellow", "red") for p in items)
+
+    # Report readable via API.
+    py_proj = str(sample_tree / "py_proj")
+    report = client.get("/api/analysis/report", params={"path": py_proj})
+    assert report.status_code == 200
+    assert "Project Status" in report.text
+
+
+def test_analyze_single_project(client, sample_tree):
+    py_proj = str(sample_tree / "py_proj")
+    res = client.post("/api/analysis/project", params={"path": py_proj})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["headline"]
+    assert body["health"] in ("green", "yellow", "red")
+    assert (sample_tree / "py_proj" / "project_status.md").is_file()
+
+
 def test_ui_served_at_root(client):
     res = client.get("/")
     assert res.status_code == 200

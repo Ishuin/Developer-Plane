@@ -77,6 +77,12 @@
   .muted { color: var(--muted); }
   .tag { display: inline-block; padding: 1px 8px; border: 1px solid var(--border);
          border-radius: 10px; font-size: 12px; color: var(--muted); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+         margin-right: 6px; vertical-align: 1px; background: var(--border); }
+  .dot.green { background: var(--ok); }
+  .dot.yellow { background: var(--warn); }
+  .dot.red { background: #dc2626; }
+  .status-cell { font-size: 13px; color: var(--muted); }
 
   .pager { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 10px; font-size: 13px; color: var(--muted); }
   .pager button { padding: 4px 10px; }
@@ -111,13 +117,14 @@
     <input type="text" id="scanPath" placeholder="Path to scan (e.g. D:\Projects)" value=".">
     <button class="btn primary" id="scanBtn" onclick="runScan()">Scan</button>
     <button class="btn" id="clearBtn" onclick="clearProjects()" title="Empty the project registry">Clear</button>
+    <button class="btn" id="analyzeBtn" onclick="runAnalysis()" title="Write project_status.md into every project">Analyze All</button>
     <input type="text" id="searchBox" placeholder="Filter by path…" oninput="debouncedProjects()">
     <select id="typeFilter" onchange="state.projects.page=1; loadProjects()"><option value="">All types</option></select>
   </div>
   <div id="scanStatus"><span class="spinner"></span><span id="scanStatusText">Scanning…</span></div>
   <div class="scroll"><table>
-    <thead><tr><th style="width:58%">Path</th><th>Type</th><th>Last activity</th></tr></thead>
-    <tbody id="projectRows"><tr><td colspan="3" class="empty">Scan a path to discover projects.</td></tr></tbody>
+    <thead><tr><th style="width:42%">Path</th><th>Type</th><th style="width:30%">Status</th><th>Last activity</th></tr></thead>
+    <tbody id="projectRows"><tr><td colspan="4" class="empty">Scan a path to discover projects.</td></tr></tbody>
   </table></div>
   <div class="pager">
     <span id="projectPageInfo"></span>
@@ -216,10 +223,13 @@ async function loadProjects() {
     <tr class="row" onclick="showDetail('${esc(pr.path).replaceAll('\\', '\\\\').replaceAll("'", "\\'")}')">
       <td class="mono">${esc(pr.path)}</td>
       <td><span class="tag">${esc(pr.type)}</span></td>
+      <td class="status-cell">${pr.status_headline
+        ? `<span class="dot ${esc(pr.status_health || '')}"></span>${esc(pr.status_headline)}`
+        : '<span class="muted">—</span>'}</td>
       <td class="muted">${fmtTime(pr.last_activity)}</td>
     </tr>`).join('');
   document.getElementById('projectRows').innerHTML =
-    rows || '<tr><td colspan="3" class="empty">No projects. Run a scan.</td></tr>';
+    rows || '<tr><td colspan="4" class="empty">No projects. Run a scan.</td></tr>';
   const pages = Math.max(1, Math.ceil(data.total / p.pageSize));
   document.getElementById('projectPageInfo').textContent =
     `${data.total} project(s) — page ${p.page} of ${pages}`;
@@ -239,6 +249,64 @@ async function clearProjects() {
   document.getElementById('detail').style.display = 'none';
   await Promise.all([loadProjects(), loadTypes()]);
   document.getElementById('health').textContent = `cleared ${res.removed} project(s)`;
+}
+
+let analysisPoll = null;
+
+async function runAnalysis() {
+  try {
+    await api('/api/analysis/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+  } catch (err) {
+    if (!String(err.message).includes('running')) {
+      document.getElementById('health').textContent = 'analysis error: ' + err.message;
+      return;
+    }
+  }
+  document.getElementById('analyzeBtn').disabled = true;
+  if (analysisPoll) clearInterval(analysisPoll);
+  analysisPoll = setInterval(pollAnalysis, 1500);
+  pollAnalysis();
+}
+
+async function pollAnalysis() {
+  try {
+    const s = await api('/api/analysis/status');
+    await loadProjects();  // refresh visible rows so statuses stream in
+    const failed = s.failed ? ` (${s.failed} failed)` : '';
+    if (s.running) {
+      setScanning(true, `Analyzing… ${s.done + s.failed}/${s.total}${failed}`);
+      document.getElementById('scanBtn').disabled = false; // only analyze is busy
+      return;
+    }
+    clearInterval(analysisPoll);
+    analysisPoll = null;
+    setScanning(false);
+    document.getElementById('analyzeBtn').disabled = false;
+    document.getElementById('health').textContent =
+      `analyzed ${s.done}/${s.total}${failed}`;
+  } catch (err) {
+    clearInterval(analysisPoll);
+    analysisPoll = null;
+    setScanning(false);
+    document.getElementById('analyzeBtn').disabled = false;
+    document.getElementById('health').textContent = 'analysis error: ' + err.message;
+  }
+}
+
+async function analyzeOne(path) {
+  const el = document.getElementById('detail');
+  el.innerHTML = '<span class="muted">Analyzing project…</span>';
+  try {
+    await api('/api/analysis/project?path=' + encodeURIComponent(path), { method: 'POST' });
+    await loadProjects();
+    await showDetail(path);
+  } catch (err) {
+    el.innerHTML = '<span class="muted">Analyze error: ' + esc(err.message) + '</span>';
+  }
 }
 
 let scanPoll = null;
@@ -308,15 +376,26 @@ async function showDetail(path) {
       api('/api/projects/genome?path=' + encodeURIComponent(path)),
       api('/api/projects/stage?path=' + encodeURIComponent(path)),
     ]);
+    let reportHtml = '';
+    try {
+      const res = await fetch('/api/analysis/report?path=' + encodeURIComponent(path));
+      if (res.ok) {
+        reportHtml = `<h3>project_status.md</h3><pre>${esc(await res.text())}</pre>`;
+      }
+    } catch { /* no report yet */ }
+    const safePath = esc(path).replaceAll('\\', '\\\\').replaceAll("'", "\\'");
     el.innerHTML = `
       <h3 class="mono">${esc(path)}</h3>
       <p><span class="tag">${esc(genome.type)}</span>
          <span class="tag">stage: ${esc(stage.stage)} · ${(stage.confidence * 100).toFixed(0)}%</span>
          ${genome.has_tests ? '<span class="tag">tests</span>' : ''}
          ${genome.has_ci ? '<span class="tag">ci</span>' : ''}
-         ${genome.has_dockerfile ? '<span class="tag">docker</span>' : ''}</p>
+         ${genome.has_dockerfile ? '<span class="tag">docker</span>' : ''}
+         <button class="btn" style="padding:3px 10px; font-size:12px;"
+           onclick="event.stopPropagation(); analyzeOne('${safePath}')">Analyze</button></p>
       <ul>${stage.evidence.map(e => `<li>${esc(e)}</li>`).join('')}</ul>
-      <pre>${esc(JSON.stringify(genome.git, null, 2))}</pre>`;
+      <pre>${esc(JSON.stringify(genome.git, null, 2))}</pre>
+      ${reportHtml}`;
   } catch (err) {
     el.innerHTML = '<span class="muted">Error: ' + esc(err.message) + '</span>';
   }

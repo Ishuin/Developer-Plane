@@ -35,6 +35,11 @@ class Settings:
         default_factory=lambda: os.environ.get("DCP_LLM_MODEL", "")
     )
 
+    # Parallel workers for the project status analysis batch.
+    analysis_workers: int = field(
+        default_factory=lambda: int(os.environ.get("DCP_ANALYSIS_WORKERS", "4"))
+    )
+
     # Confidence decay: stage confidence halves after this many idle days.
     confidence_half_life_days: float = field(
         default_factory=lambda: float(os.environ.get("DCP_HALF_LIFE_DAYS", "14"))
