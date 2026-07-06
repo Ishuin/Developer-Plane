@@ -1,0 +1,6 @@
+# Optional Tier 1 (AI) dependencies — install only if you want the LangGraph advisor:
+#   pip install -r requirements-ai.txt
+# Then set: DCP_AI_ENABLED=1, DCP_LLM_API_KEY, DCP_LLM_MODEL, (optional) DCP_LLM_API_BASE
+langchain-core>=0.2
+langchain-openai>=0.1
+langgraph>=0.1

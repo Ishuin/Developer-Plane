@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Developer Control Plane</title>
+<style>
+  :root {
+    --bg: #fafafa; --surface: #ffffff; --border: #e5e5e5;
+    --text: #1a1a1a; --muted: #737373; --accent: #2563eb;
+    --ok: #16a34a; --warn: #d97706; --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111113; --surface: #1a1a1d; --border: #2a2a2e;
+      --text: #ededed; --muted: #8a8a8e; --accent: #60a5fa;
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font: 15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+    max-width: 1100px; margin: 0 auto; padding: 32px 24px;
+  }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 24px; }
+  h1 { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+  h1 span { color: var(--muted); font-weight: 400; }
+  #health { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+
+  nav { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+  nav button {
+    background: none; border: none; padding: 8px 14px; cursor: pointer;
+    font: inherit; font-size: 14px; color: var(--muted);
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav button:hover { color: var(--text); }
+
+  .toolbar { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  input, select {
+    padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--surface); color: var(--text); font: inherit; font-size: 14px;
+  }
+  input[type=text] { flex: 1; min-width: 220px; }
+  button.btn {
+    padding: 7px 14px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--surface); color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+  }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.btn:hover { border-color: var(--accent); }
+  button.btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
+
+  .spinner {
+    display: inline-block; width: 14px; height: 14px; vertical-align: -2px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #scanStatus {
+    display: none; align-items: center; gap: 8px; margin-bottom: 12px;
+    font-size: 13px; color: var(--muted);
+  }
+  #scanStatus.active { display: flex; }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .scroll { max-height: 62vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { position: sticky; top: 0; background: var(--surface); text-align: left; font-size: 12px;
+       text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+       padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr.row:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); cursor: pointer; }
+  td.mono, .mono { font-family: var(--mono); font-size: 13px; }
+  .muted { color: var(--muted); }
+  .tag { display: inline-block; padding: 1px 8px; border: 1px solid var(--border);
+         border-radius: 10px; font-size: 12px; color: var(--muted); }
+
+  .pager { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .pager button { padding: 4px 10px; }
+  .pager button:disabled { opacity: 0.4; cursor: default; }
+
+  #detail { border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+            padding: 16px; margin-top: 14px; display: none; }
+  #detail h3 { font-size: 14px; margin-bottom: 8px; }
+  #detail pre { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap;
+                color: var(--muted); max-height: 260px; overflow-y: auto; }
+  #detail ul { margin: 6px 0 0 18px; font-size: 14px; }
+  .empty { padding: 36px; text-align: center; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Developer Control Plane <span>/ context fabric</span></h1>
+  <div id="health">…</div>
+</header>
+
+<nav id="tabs">
+  <button data-tab="projects" class="active">Projects</button>
+  <button data-tab="signals">Signals</button>
+  <button data-tab="inferences">Inferences</button>
+  <button data-tab="decisions">Decisions</button>
+  <button data-tab="agents">Agents</button>
+</nav>
+
+<!-- Projects -->
+<section class="panel active" id="panel-projects">
+  <div class="toolbar">
+    <input type="text" id="scanPath" placeholder="Path to scan (e.g. D:\Projects)" value=".">
+    <button class="btn primary" id="scanBtn" onclick="runScan()">Scan</button>
+    <button class="btn" id="clearBtn" onclick="clearProjects()" title="Empty the project registry">Clear</button>
+    <input type="text" id="searchBox" placeholder="Filter by path…" oninput="debouncedProjects()">
+    <select id="typeFilter" onchange="state.projects.page=1; loadProjects()"><option value="">All types</option></select>
+  </div>
+  <div id="scanStatus"><span class="spinner"></span><span id="scanStatusText">Scanning…</span></div>
+  <div class="scroll"><table>
+    <thead><tr><th style="width:58%">Path</th><th>Type</th><th>Last activity</th></tr></thead>
+    <tbody id="projectRows"><tr><td colspan="3" class="empty">Scan a path to discover projects.</td></tr></tbody>
+  </table></div>
+  <div class="pager">
+    <span id="projectPageInfo"></span>
+    <button class="btn" id="prevBtn" onclick="pageStep(-1)">‹ Prev</button>
+    <button class="btn" id="nextBtn" onclick="pageStep(1)">Next ›</button>
+  </div>
+  <div id="detail"></div>
+</section>
+
+<!-- Signals / Inferences / Decisions share a renderer -->
+<section class="panel" id="panel-signals">
+  <div class="scroll"><table>
+    <thead><tr><th>Time</th><th>Type</th><th style="width:50%">Data</th></tr></thead>
+    <tbody id="signalRows"></tbody>
+  </table></div>
+  <div class="pager"><span id="signalsPageInfo"></span>
+    <button class="btn" onclick="trinityStep('signals',-1)">‹ Prev</button>
+    <button class="btn" onclick="trinityStep('signals',1)">Next ›</button></div>
+</section>
+
+<section class="panel" id="panel-inferences">
+  <div class="scroll"><table>
+    <thead><tr><th>Time</th><th>Type</th><th>Confidence</th><th style="width:44%">Data</th></tr></thead>
+    <tbody id="inferenceRows"></tbody>
+  </table></div>
+  <div class="pager"><span id="inferencesPageInfo"></span>
+    <button class="btn" onclick="trinityStep('inferences',-1)">‹ Prev</button>
+    <button class="btn" onclick="trinityStep('inferences',1)">Next ›</button></div>
+</section>
+
+<section class="panel" id="panel-decisions">
+  <div class="scroll"><table>
+    <thead><tr><th>Time</th><th>Type</th><th style="width:50%">Data</th></tr></thead>
+    <tbody id="decisionRows"></tbody>
+  </table></div>
+  <div class="pager"><span id="decisionsPageInfo"></span>
+    <button class="btn" onclick="trinityStep('decisions',-1)">‹ Prev</button>
+    <button class="btn" onclick="trinityStep('decisions',1)">Next ›</button></div>
+</section>
+
+<!-- Agents -->
+<section class="panel" id="panel-agents">
+  <div class="toolbar">
+    <select id="agentSelect"></select>
+    <input type="text" id="agentPath" placeholder="Project path">
+    <button class="btn primary" onclick="runAgent()">Run agent</button>
+  </div>
+  <div id="agentOut" class="scroll" style="padding:16px; font-size:14px;">
+    <span class="muted">Pick an agent and a project path. Tier 0 agents run fully offline.</span>
+  </div>
+</section>
+
+<script>
+const state = {
+  projects: { page: 1, pageSize: 25 },
+  signals: { page: 1 }, inferences: { page: 1 }, decisions: { page: 1 },
+};
+
+const esc = s => { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; };
+const fmtTime = t => t ? t.replace('T', ' ').slice(0, 19) : '';
+const api = async (url, opts) => {
+  const res = await fetch(url, opts);
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+  return res.json();
+};
+
+/* Tabs */
+document.getElementById('tabs').addEventListener('click', e => {
+  if (e.target.tagName !== 'BUTTON') return;
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b === e.target));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  const tab = e.target.dataset.tab;
+  document.getElementById('panel-' + tab).classList.add('active');
+  if (tab === 'projects') loadProjects();
+  else if (tab === 'agents') loadAgents();
+  else loadTrinity(tab);
+});
+
+/* Projects */
+let debounceTimer;
+function debouncedProjects() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => { state.projects.page = 1; loadProjects(); }, 250);
+}
+
+async function loadProjects() {
+  const p = state.projects;
+  const search = document.getElementById('searchBox').value.trim();
+  const type = document.getElementById('typeFilter').value;
+  const params = new URLSearchParams({ page: p.page, page_size: p.pageSize });
+  if (search) params.set('search', search);
+  if (type) params.set('type', type);
+  const data = await api('/api/projects?' + params);
+  p.total = data.total;
+  const rows = data.items.map(pr => `
+    <tr class="row" onclick="showDetail('${esc(pr.path).replaceAll('\\', '\\\\').replaceAll("'", "\\'")}')">
+      <td class="mono">${esc(pr.path)}</td>
+      <td><span class="tag">${esc(pr.type)}</span></td>
+      <td class="muted">${fmtTime(pr.last_activity)}</td>
+    </tr>`).join('');
+  document.getElementById('projectRows').innerHTML =
+    rows || '<tr><td colspan="3" class="empty">No projects. Run a scan.</td></tr>';
+  const pages = Math.max(1, Math.ceil(data.total / p.pageSize));
+  document.getElementById('projectPageInfo').textContent =
+    `${data.total} project(s) — page ${p.page} of ${pages}`;
+  document.getElementById('prevBtn').disabled = p.page <= 1;
+  document.getElementById('nextBtn').disabled = p.page >= pages;
+}
+
+function pageStep(delta) {
+  state.projects.page = Math.max(1, state.projects.page + delta);
+  loadProjects();
+}
+
+async function clearProjects() {
+  if (!confirm('Clear the project registry? (Event log is kept; re-scan to repopulate.)')) return;
+  const res = await api('/api/projects', { method: 'DELETE' });
+  state.projects.page = 1;
+  document.getElementById('detail').style.display = 'none';
+  await Promise.all([loadProjects(), loadTypes()]);
+  document.getElementById('health').textContent = `cleared ${res.removed} project(s)`;
+}
+
+let scanPoll = null;
+
+function setScanning(on, text) {
+  document.getElementById('scanBtn').disabled = on;
+  const status = document.getElementById('scanStatus');
+  status.classList.toggle('active', on);
+  if (text) document.getElementById('scanStatusText').textContent = text;
+}
+
+async function runScan() {
+  const path = document.getElementById('scanPath').value.trim() || '.';
+  try {
+    await api('/api/projects/scan?path=' + encodeURIComponent(path), { method: 'POST' });
+  } catch (err) {
+    // 409 = a scan is already running; just attach to it.
+    if (!String(err.message).includes('running')) {
+      document.getElementById('health').textContent = 'scan error: ' + err.message;
+      return;
+    }
+  }
+  setScanning(true, 'Scanning ' + path + '…');
+  state.projects.page = 1;
+  if (scanPoll) clearInterval(scanPoll);
+  scanPoll = setInterval(pollScan, 1200);
+  pollScan();
+}
+
+async function pollScan() {
+  try {
+    const s = await api('/api/projects/scan/status');
+    // Refresh the list live so projects appear as they are identified.
+    await Promise.all([loadProjects(), loadTypes()]);
+    if (s.running) {
+      setScanning(true, `Scanning ${s.root}… ${s.found} project(s) found so far`);
+      return;
+    }
+    clearInterval(scanPoll);
+    scanPoll = null;
+    setScanning(false);
+    document.getElementById('health').textContent = s.error
+      ? 'scan error: ' + s.error
+      : `scanned ${s.root}: ${s.found} found`;
+  } catch (err) {
+    clearInterval(scanPoll);
+    scanPoll = null;
+    setScanning(false);
+    document.getElementById('health').textContent = 'scan error: ' + err.message;
+  }
+}
+
+async function loadTypes() {
+  const data = await api('/api/projects/types');
+  const sel = document.getElementById('typeFilter');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All types</option>' +
+    data.types.map(t => `<option ${t === current ? 'selected' : ''}>${esc(t)}</option>`).join('');
+}
+
+async function showDetail(path) {
+  const el = document.getElementById('detail');
+  el.style.display = 'block';
+  el.innerHTML = '<span class="muted">Loading genome + stage…</span>';
+  try {
+    const [genome, stage] = await Promise.all([
+      api('/api/projects/genome?path=' + encodeURIComponent(path)),
+      api('/api/projects/stage?path=' + encodeURIComponent(path)),
+    ]);
+    el.innerHTML = `
+      <h3 class="mono">${esc(path)}</h3>
+      <p><span class="tag">${esc(genome.type)}</span>
+         <span class="tag">stage: ${esc(stage.stage)} · ${(stage.confidence * 100).toFixed(0)}%</span>
+         ${genome.has_tests ? '<span class="tag">tests</span>' : ''}
+         ${genome.has_ci ? '<span class="tag">ci</span>' : ''}
+         ${genome.has_dockerfile ? '<span class="tag">docker</span>' : ''}</p>
+      <ul>${stage.evidence.map(e => `<li>${esc(e)}</li>`).join('')}</ul>
+      <pre>${esc(JSON.stringify(genome.git, null, 2))}</pre>`;
+  } catch (err) {
+    el.innerHTML = '<span class="muted">Error: ' + esc(err.message) + '</span>';
+  }
+}
+
+/* Trinity tabs */
+async function loadTrinity(kind) {
+  const page = state[kind].page;
+  const data = await api(`/api/${kind}?page=${page}&page_size=25`);
+  const tbodyId = { signals: 'signalRows', inferences: 'inferenceRows', decisions: 'decisionRows' }[kind];
+  const rows = data.items.map(item => {
+    const typeKey = item.event_type || item.inference_type || item.decision_type;
+    const conf = kind === 'inferences'
+      ? `<td class="mono">${(item.confidence_score * 100).toFixed(0)}%</td>` : '';
+    return `<tr><td class="muted mono">${fmtTime(item.timestamp)}</td>
+      <td>${esc(typeKey)}</td>${conf}
+      <td class="mono muted">${esc(JSON.stringify(item.data))}</td></tr>`;
+  }).join('');
+  const cols = kind === 'inferences' ? 4 : 3;
+  document.getElementById(tbodyId).innerHTML =
+    rows || `<tr><td colspan="${cols}" class="empty">Nothing recorded yet.</td></tr>`;
+  const pages = Math.max(1, Math.ceil(data.total / data.page_size));
+  document.getElementById(kind + 'PageInfo').textContent =
+    `${data.total} row(s) — page ${page} of ${pages}`;
+}
+
+function trinityStep(kind, delta) {
+  state[kind].page = Math.max(1, state[kind].page + delta);
+  loadTrinity(kind);
+}
+
+/* Agents */
+async function loadAgents() {
+  const data = await api('/api/agents');
+  document.getElementById('agentSelect').innerHTML = data.agents
+    .map(a => `<option value="${esc(a.name)}">${esc(a.name)} (tier ${a.tier})</option>`).join('');
+}
+
+async function runAgent() {
+  const out = document.getElementById('agentOut');
+  out.innerHTML = '<span class="muted">Running…</span>';
+  try {
+    const result = await api('/api/agents/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agent: document.getElementById('agentSelect').value,
+        path: document.getElementById('agentPath').value.trim(),
+      }),
+    });
+    out.innerHTML = `<p><strong>${esc(result.agent)}</strong> — ${esc(result.summary)}</p>
+      <ul>${result.recommendations.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+      ${result.notes.length ? `<p class="muted">${result.notes.map(esc).join('<br>')}</p>` : ''}`;
+  } catch (err) {
+    out.innerHTML = '<span class="muted">Error: ' + esc(err.message) + '</span>';
+  }
+}
+
+/* Init */
+(async () => {
+  try {
+    const h = await api('/api/health');
+    document.getElementById('health').textContent = 'v' + h.version + ' · online';
+  } catch { document.getElementById('health').textContent = 'offline'; }
+  loadProjects().catch(() => {});
+  loadTypes().catch(() => {});
+})();
+</script>
+</body>
+</html>
