@@ -18,7 +18,7 @@ FAKE_AGENT = f'"{PY}" -c "open(\'agent_output.txt\',\'w\').write(\'done\')"'
 FAKE_NOOP = f'"{PY}" -c "pass"'
 
 
-def make_manager(db, agent_cmd=FAKE_AGENT, timeout=60):
+def make_manager(db, agent_cmd=FAKE_AGENT, timeout=60, tasks=None, selfimp=None):
     settings = Settings(agent_cmd=agent_cmd, agent_timeout=timeout, ai_enabled=False)
     return AutopilotManager(
         db,
@@ -26,6 +26,8 @@ def make_manager(db, agent_cmd=FAKE_AGENT, timeout=60):
         CompletionEngine(db),
         StageInferenceEngine(db),
         ContextAssembler(db),
+        tasks=tasks,
+        self_improvement=selfimp,
     )
 
 
@@ -126,6 +128,75 @@ def test_batch_lifecycle(db, git_project):
     assert status["running"] is False
     assert status["done"] == 1
     assert status["failed"] == 0
+
+
+def test_library_projects_never_touched(db, git_project):
+    path = str(git_project)
+    db.upsert_project(path, "Python")
+    db.set_project_kind(path, "library")
+
+    manager = make_manager(db)
+    assert manager.run_project(path) == "skipped"
+    assert db.count_agent_runs() == 0
+    refusals = [d for d in db.get_decisions(limit=10)
+                if d.decision_type == "AgentRunRefused"]
+    assert refusals and "library" in refusals[0].data["reason"]
+
+
+def test_run_moves_kanban_cards(db, git_project):
+    from dcp.cortex.tasks import TaskService
+
+    path = str(git_project)
+    db.upsert_project(path, "Python")
+    tasks = TaskService(db)
+    card = tasks.seed(path, ["Do the thing"], origin="analysis")[0]
+
+    manager = make_manager(db, agent_cmd=FAKE_NOOP, tasks=tasks)
+    manager.run_project(path)
+
+    moved = db.get_task(card.id)
+    assert moved.status == "review"
+    assert moved.run_id == db.get_agent_runs(limit=1)[0].id
+
+    # Approve → card lands in done.
+    run = db.get_agent_runs(limit=1)[0]
+    manager.apply_verdict(run.id, "approved")
+    assert db.get_task(card.id).status == "done"
+
+
+def test_discard_verdict_returns_card_to_todo(db, git_project):
+    from dcp.cortex.tasks import TaskService
+
+    path = str(git_project)
+    db.upsert_project(path, "Python")
+    tasks = TaskService(db)
+    card = tasks.seed(path, ["Another thing"], origin="analysis")[0]
+
+    manager = make_manager(db, agent_cmd=FAKE_NOOP, tasks=tasks)
+    manager.run_project(path)
+    run = db.get_agent_runs(limit=1)[0]
+    manager.apply_verdict(run.id, "discarded")
+    assert db.get_task(card.id).status == "todo"
+
+
+def test_failed_run_records_bottleneck(db, git_project, tmp_path):
+    from dcp.cortex.self_improvement import SelfImprovementManager
+    from dcp.cortex.tasks import TaskService
+
+    home = tmp_path / "home"
+    home.mkdir()
+    tasks = TaskService(db)
+    selfimp = SelfImprovementManager(
+        db, tasks,
+        CodeAgentExecutor(Settings(agent_cmd=FAKE_NOOP, agent_timeout=30)),
+        str(home),
+    )
+    failing = f'"{PY}" -c "import sys; sys.exit(3)"'
+    manager = make_manager(db, agent_cmd=failing, tasks=tasks, selfimp=selfimp)
+    manager.run_project(str(git_project))
+
+    self_tasks = db.list_tasks(pipeline="self", limit=10)
+    assert self_tasks and "agent-run-failure" in self_tasks[0].title
 
 
 def test_executor_timeout(db, git_project):

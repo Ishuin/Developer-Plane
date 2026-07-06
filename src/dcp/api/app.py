@@ -10,7 +10,9 @@ from fastapi.staticfiles import StaticFiles
 
 from dcp import __version__
 from dcp.api.deps import AppState, build_state
-from dcp.api.routes import agents, analysis, autopilot, projects, trinity, watcher
+from dcp.api.routes import (
+    agents, analysis, autopilot, projects, tasks, trinity, watcher,
+)
 from dcp.config import Settings, get_settings
 
 
@@ -25,7 +27,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         valid_roots = [r for r in roots if os.path.isdir(r)]
         if valid_roots:
             state.watcher.start(valid_roots)
+        state.self_improvement.start_scheduler()
         yield
+        state.self_improvement.stop_scheduler()
         state.watcher.stop()
         state.db.close()
 
@@ -41,6 +45,8 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(analysis.router)
     app.include_router(autopilot.router)
     app.include_router(autopilot.completion_router)
+    app.include_router(tasks.router)
+    app.include_router(tasks.self_router)
     app.include_router(watcher.router)
 
     @app.get("/api/health")

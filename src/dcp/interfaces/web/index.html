@@ -93,6 +93,24 @@
   .run-report pre { font-family: var(--mono); font-size: 12px; white-space: pre-wrap;
                     color: var(--muted); max-height: 240px; overflow-y: auto; margin: 0; }
 
+  .kind-library { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+  .kind-github { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+  .kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .kcol { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+          padding: 10px; min-height: 180px; max-height: 56vh; overflow-y: auto; }
+  .kcol h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;
+             color: var(--muted); margin-bottom: 8px; }
+  .card { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+          padding: 8px 10px; margin-bottom: 8px; font-size: 13px; }
+  .card .meta { font-size: 11px; color: var(--muted); margin-top: 4px;
+                display: flex; justify-content: space-between; align-items: center; }
+  .card button { background: none; border: none; color: var(--muted); cursor: pointer;
+                 font-size: 11px; padding: 0; }
+  .card button:hover { color: #dc2626; }
+  #selfPanel { border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+               padding: 12px 16px; margin-bottom: 14px; font-size: 13px; }
+
   .pager { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 10px; font-size: 13px; color: var(--muted); }
   .pager button { padding: 4px 10px; }
   .pager button:disabled { opacity: 0.4; cursor: default; }
@@ -119,6 +137,7 @@
   <button data-tab="decisions">Decisions</button>
   <button data-tab="agents">Agents</button>
   <button data-tab="autopilot">Autopilot</button>
+  <button data-tab="board">Board</button>
 </nav>
 
 <!-- Projects -->
@@ -146,8 +165,8 @@
   </div>
   <div id="scanStatus"><span class="spinner"></span><span id="scanStatusText">Scanning…</span></div>
   <div class="scroll"><table>
-    <thead><tr><th style="width:42%">Path</th><th>Type</th><th style="width:30%">Status</th><th>Last activity</th></tr></thead>
-    <tbody id="projectRows"><tr><td colspan="4" class="empty">Scan a path to discover projects.</td></tr></tbody>
+    <thead><tr><th style="width:38%">Path</th><th>Type</th><th>Kind</th><th style="width:28%">Status</th><th>Last activity</th></tr></thead>
+    <tbody id="projectRows"><tr><td colspan="5" class="empty">Scan a path to discover projects.</td></tr></tbody>
   </table></div>
   <div class="pager">
     <span id="projectPageInfo"></span>
@@ -200,6 +219,30 @@
   </div>
 </section>
 
+<!-- Board -->
+<section class="panel" id="panel-board">
+  <div id="selfPanel">
+    <strong>Self-improvement pipeline</strong> — <span id="selfInfo" class="muted">loading…</span>
+    <button class="btn" style="margin-left:10px; padding:3px 10px; font-size:12px;"
+      onclick="selfCheck()">Run daily check now</button>
+  </div>
+  <div class="toolbar">
+    <select id="boardProject" onchange="loadBoard()" style="min-width:320px;">
+      <option value="">All projects</option>
+    </select>
+    <select id="boardPipeline" onchange="loadBoard()">
+      <option value="project" selected>Project tasks</option>
+      <option value="self">Self-improvement</option>
+    </select>
+  </div>
+  <div class="kanban">
+    <div class="kcol"><h4>To do</h4><div id="kcol-todo"></div></div>
+    <div class="kcol"><h4>In progress</h4><div id="kcol-in_progress"></div></div>
+    <div class="kcol"><h4>Review</h4><div id="kcol-review"></div></div>
+    <div class="kcol"><h4>Done</h4><div id="kcol-done"></div></div>
+  </div>
+</section>
+
 <!-- Autopilot -->
 <section class="panel" id="panel-autopilot">
   <div class="toolbar">
@@ -247,6 +290,7 @@ document.getElementById('tabs').addEventListener('click', e => {
   if (tab === 'projects') loadProjects();
   else if (tab === 'agents') loadAgents();
   else if (tab === 'autopilot') loadAutopilot();
+  else if (tab === 'board') { loadBoardProjects(); loadBoard(); loadSelfStatus(); }
   else loadTrinity(tab);
 });
 
@@ -274,6 +318,7 @@ async function loadProjects() {
     <tr class="row" onclick="showDetail('${esc(pr.path).replaceAll('\\', '\\\\').replaceAll("'", "\\'")}')">
       <td class="mono">${esc(pr.path)}</td>
       <td><span class="tag">${esc(pr.type)}</span></td>
+      <td>${pr.kind ? `<span class="tag kind-${esc(pr.kind)}">${esc(pr.kind)}</span>` : '<span class="muted">—</span>'}</td>
       <td class="status-cell">${pr.status_headline
         ? `<span class="dot ${esc(pr.status_health || '')}"></span>${esc(pr.status_headline)}`
         : '<span class="muted">—</span>'}${pr.completion_percent != null
@@ -281,7 +326,7 @@ async function loadProjects() {
       <td class="muted">${fmtTime(pr.last_activity)}</td>
     </tr>`).join('');
   document.getElementById('projectRows').innerHTML =
-    rows || '<tr><td colspan="4" class="empty">No projects. Run a scan.</td></tr>';
+    rows || '<tr><td colspan="5" class="empty">No projects. Run a scan.</td></tr>';
   const pages = Math.max(1, Math.ceil(data.total / p.pageSize));
   document.getElementById('projectPageInfo').textContent =
     `${data.total} project(s) — page ${p.page} of ${pages}`;
@@ -505,6 +550,64 @@ async function runAgent() {
       ${result.notes.length ? `<p class="muted">${result.notes.map(esc).join('<br>')}</p>` : ''}`;
   } catch (err) {
     out.innerHTML = '<span class="muted">Error: ' + esc(err.message) + '</span>';
+  }
+}
+
+/* Board */
+async function loadBoardProjects() {
+  const sel = document.getElementById('boardProject');
+  if (sel.options.length > 1) return;  // already populated
+  const data = await api('/api/projects?page=1&page_size=200');
+  sel.innerHTML = '<option value="">All projects</option>' + data.items
+    .map(p => `<option value="${esc(p.path)}">${esc(p.path)}</option>`).join('');
+}
+
+async function loadBoard() {
+  const project = document.getElementById('boardProject').value;
+  const pipeline = document.getElementById('boardPipeline').value;
+  const params = new URLSearchParams({ pipeline });
+  if (project) params.set('project', project);
+  const cols = await api('/api/tasks/board?' + params);
+  for (const status of ['todo', 'in_progress', 'review', 'done']) {
+    const el = document.getElementById('kcol-' + status);
+    el.innerHTML = (cols[status] || []).map(t => `
+      <div class="card">
+        ${esc(t.title)}
+        <div class="meta">
+          <span class="mono" title="${esc(t.project_id)}">${esc(t.project_id.split(/[\\/]/).pop())}${t.run_id ? ' · run #' + t.run_id : ''}</span>
+          ${t.status !== 'done'
+            ? `<button title="Emergency discard" onclick="discardTask(${t.id})">✕ discard</button>` : ''}
+        </div>
+      </div>`).join('') || '<span class="muted" style="font-size:12px;">empty</span>';
+  }
+}
+
+async function discardTask(id) {
+  if (!confirm('Discard this task? Agents will never pick it up again. (Emergency use only.)')) return;
+  await api(`/api/tasks/${id}/discard`, { method: 'POST' });
+  loadBoard();
+}
+
+async function loadSelfStatus() {
+  try {
+    const s = await api('/api/self/status');
+    const last = s.last_execution ? fmtTime(s.last_execution) : 'never';
+    document.getElementById('selfInfo').textContent =
+      `${s.open_self_tasks} open task(s) · last execution: ${last} · ` +
+      `next eligible: ${s.next_eligible === 'now' ? 'now' : fmtTime(s.next_eligible)}` +
+      (s.other_work_active ? ' · waiting: other projects have open work' : '');
+  } catch (err) {
+    document.getElementById('selfInfo').textContent = 'error: ' + err.message;
+  }
+}
+
+async function selfCheck() {
+  document.getElementById('selfInfo').textContent = 'running daily check…';
+  const res = await api('/api/self/check', { method: 'POST' });
+  await loadSelfStatus();
+  await loadBoard();
+  if (!res.executed) {
+    document.getElementById('selfInfo').textContent += ` — skipped: ${res.reason}`;
   }
 }
 

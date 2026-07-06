@@ -1,6 +1,7 @@
 """Shared application state and dependency wiring."""
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from dcp.agents import HealthCheckAgent, LangGraphAdvisorAgent
 from dcp.agents.executor import CodeAgentExecutor
@@ -12,7 +13,9 @@ from dcp.cortex import (
     AutopilotManager,
     CompletionEngine,
     ContextAssembler,
+    SelfImprovementManager,
     StageInferenceEngine,
+    TaskService,
 )
 from dcp.database import EventSourcingDB
 from dcp.sentry import ProjectDiscovery, ScanManager, SentryWatcher
@@ -31,6 +34,8 @@ class AppState:
     analysis: AnalysisManager
     completion: CompletionEngine
     autopilot: AutopilotManager
+    tasks: TaskService
+    self_improvement: SelfImprovementManager
 
 
 def build_state(settings: Settings) -> AppState:
@@ -40,10 +45,16 @@ def build_state(settings: Settings) -> AppState:
     router.register(LangGraphAdvisorAgent(settings))
     status_agent = StatusReportAgent(settings)
     router.register(status_agent)
-    discovery = ProjectDiscovery(db)
+    owned_users = [u.strip() for u in settings.github_users.split(",") if u.strip()]
+    discovery = ProjectDiscovery(db, owned_users=owned_users)
     inference = StageInferenceEngine(db, settings.confidence_half_life_days)
     assembler = ContextAssembler(db)
     completion = CompletionEngine(db)
+    tasks = TaskService(db)
+    executor = CodeAgentExecutor(settings)
+    # The control plane's own repository root (…/src/dcp/api/deps.py → repo).
+    home_path = str(Path(__file__).resolve().parents[3])
+    self_improvement = SelfImprovementManager(db, tasks, executor, home_path)
     return AppState(
         settings=settings,
         db=db,
@@ -56,9 +67,13 @@ def build_state(settings: Settings) -> AppState:
         analysis=AnalysisManager(
             db, status_agent, inference, assembler,
             max_workers=settings.analysis_workers,
+            tasks=tasks,
         ),
         completion=completion,
         autopilot=AutopilotManager(
-            db, CodeAgentExecutor(settings), completion, inference, assembler,
+            db, executor, completion, inference, assembler,
+            tasks=tasks, self_improvement=self_improvement,
         ),
+        tasks=tasks,
+        self_improvement=self_improvement,
     )

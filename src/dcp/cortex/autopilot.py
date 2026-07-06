@@ -16,7 +16,10 @@ from dcp.core.models import AgentRun
 from dcp.cortex.completion import CompletionEngine, CompletionResult
 from dcp.cortex.context import ContextAssembler
 from dcp.cortex.inference import StageInferenceEngine
+from dcp.cortex.self_improvement import SelfImprovementManager
+from dcp.cortex.tasks import TaskService
 from dcp.database import EventSourcingDB
+from dcp.sentry.classify import is_modifiable
 from dcp.sentry.genome import build_genome
 
 logger = logging.getLogger(__name__)
@@ -28,6 +31,8 @@ HARD_RULES = """
 - Do NOT touch files outside this directory.
 - Focus on the listed tasks; stop when they are done.
 - If a task is impossible, note why in a file named AGENT_NOTES.md and move on.
+- After code changes, update README.md and any other affected *.md docs so
+  documentation always reflects the current behavior.
 """
 
 
@@ -59,12 +64,16 @@ class AutopilotManager:
         completion: CompletionEngine,
         inference: StageInferenceEngine,
         assembler: ContextAssembler,
+        tasks: Optional[TaskService] = None,
+        self_improvement: Optional[SelfImprovementManager] = None,
     ):
         self.db = db
         self.executor = executor
         self.completion = completion
         self.inference = inference
         self.assembler = assembler
+        self.tasks = tasks
+        self.self_improvement = self_improvement
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
         self._status: Dict[str, Any] = {
@@ -136,9 +145,20 @@ class AutopilotManager:
         if not os.path.isdir(path):
             raise FileNotFoundError(f"directory gone: {path}")
 
+        # Guard 0: libraries (third-party code) are never modified.
+        project = self.db.get_project(path)
+        if project is not None and not is_modifiable(project.kind):
+            logger.info("Skip %s: kind=%s is read-only", path, project.kind)
+            self.db.log_decision(
+                "AgentRunRefused", {"reason": f"kind={project.kind}"},
+                project_id=path,
+            )
+            return "skipped"
+
         genome = build_genome(path)
         # Guard 1: never touch a repo with pre-existing uncommitted work.
-        if genome.git.get("is_repo") and genome.git.get("dirty_files", 0) > 0:
+        # Files the control plane itself generates don't count as user WIP.
+        if genome.git.get("is_repo") and _user_dirty_files(path):
             logger.info("Skip %s: dirty working tree", path)
             return "skipped"
         # Guard 2: one pending proposal per project.
@@ -149,18 +169,39 @@ class AutopilotManager:
         completion = self.completion.evaluate(path, genome=genome)
         stage = self.inference.infer_stage(path, genome=genome)
         context = self.assembler.assemble(path, genome=genome, stage=stage)
-        next_steps = self._latest_next_steps(path)
+
+        # Prefer open kanban cards as the work list; fall back to the
+        # latest analysis recommendations.
+        board_tasks = self.tasks.open_tasks(path) if self.tasks else []
+        next_steps = ([t.title for t in board_tasks]
+                      or self._latest_next_steps(path))
         brief = build_task_brief(context, completion=completion, next_steps=next_steps)
 
         run = self.db.insert_agent_run(AgentRun(project_id=path, task_brief=brief))
+        for task in board_tasks:
+            self.tasks.move(task.id, "in_progress", run_id=run.id)
+
         outcome = self.executor.execute(path, brief)
         self.db.finish_agent_run(
             run.id, outcome.exit_code, outcome.diff_stat, outcome.report
         )
+        # Agent moves the cards: finished work goes to review.
+        for task in board_tasks:
+            self.tasks.move(task.id, "review", run_id=run.id)
+
+        if outcome.exit_code != 0 and self.self_improvement:
+            self.self_improvement.record_bottleneck(
+                "agent-run-failure",
+                f"exit {outcome.exit_code} on {os.path.basename(path)}: "
+                + outcome.report[:160],
+                project_id=path,
+            )
+
         self.db.log_decision(
             "AgentRunProposed",
             {"run_id": run.id, "exit_code": outcome.exit_code,
-             "changed_files": outcome.changed_files[:50]},
+             "changed_files": outcome.changed_files[:50],
+             "task_ids": [t.id for t in board_tasks]},
             project_id=path,
         )
         return "done"
@@ -193,12 +234,43 @@ class AutopilotManager:
             result["reverted"] = ok
             if errors:
                 result["errors"] = errors
+        # Verdict moves the run's cards: approve → done, discard → back to todo.
+        if self.tasks:
+            for task in self.db.list_tasks(project_id=run.project_id, limit=200):
+                if task.run_id == run_id and task.status == "review":
+                    self.tasks.move(
+                        task.id,
+                        "done" if verdict == "approved" else "todo",
+                        run_id=run_id, actor="verdict",
+                    )
         self.db.set_run_verdict(run_id, verdict)
         self.db.log_decision(
             "AgentRunVerdict", {"run_id": run_id, "verdict": verdict},
             project_id=run.project_id,
         )
         return result
+
+
+GENERATED_FILES = {"project_status.md", "AGENT_NOTES.md", "self_improvement.md"}
+
+
+def _user_dirty_files(path: str) -> List[str]:
+    """Uncommitted files excluding DCP-generated artifacts."""
+    import subprocess
+
+    try:
+        res = subprocess.run(
+            ["git", "-C", path, "status", "--porcelain"],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    dirty = []
+    for line in res.stdout.splitlines():
+        rel = line[3:].strip() if len(line) > 3 else ""
+        if rel and os.path.basename(rel) not in GENERATED_FILES:
+            dirty.append(rel)
+    return dirty
 
 
 def _extract_next_steps(report_path: str) -> List[str]:

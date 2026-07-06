@@ -45,6 +45,11 @@ class Settings:
         default_factory=lambda: int(os.environ.get("DCP_ANALYSIS_WORKERS", "4"))
     )
 
+    # GitHub accounts that mark a project as the user's own (comma-separated).
+    github_users: str = field(
+        default_factory=lambda: os.environ.get("DCP_GITHUB_USERS", "Ishuin")
+    )
+
     # Autopilot: headless coding-agent command template. {brief_file} is
     # replaced with the path to the task brief written for the run.
     agent_cmd: str = field(

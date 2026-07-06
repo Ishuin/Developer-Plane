@@ -19,6 +19,22 @@ class Project(BaseModel):
     completion_percent: Optional[float] = None
     completion_source: Optional[str] = None
     automation_enabled: int = 0
+    kind: Optional[str] = None  # library | github | local-git | local
+
+
+class Task(BaseModel):
+    """A kanban card. Agents move it; the user may discard it."""
+
+    id: Optional[int] = None
+    project_id: str
+    title: str
+    detail: str = ""
+    status: str = "todo"  # todo | in_progress | review | done | discarded
+    pipeline: str = "project"  # project | self
+    origin: str = ""
+    run_id: Optional[int] = None
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
 class AgentRun(BaseModel):

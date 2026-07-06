@@ -16,7 +16,9 @@ from typing import Any, Dict, List, Optional
 from dcp.agents.status_agent import ProjectStatus, StatusReportAgent
 from dcp.cortex.context import ContextAssembler
 from dcp.cortex.inference import StageInferenceEngine
+from dcp.cortex.tasks import TaskService
 from dcp.database import EventSourcingDB
+from dcp.sentry.classify import is_modifiable
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +37,13 @@ class AnalysisManager:
         inference: StageInferenceEngine,
         assembler: ContextAssembler,
         max_workers: int = 4,
+        tasks: Optional[TaskService] = None,
     ):
         self.db = db
         self.agent = agent
         self.inference = inference
         self.assembler = assembler
+        self.tasks = tasks
         self.max_workers = max(1, max_workers)
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
@@ -104,6 +108,13 @@ class AnalysisManager:
             {"file": report_path, "tier": status.tier},
             project_id=path,
         )
+
+        # Seed kanban cards from the recommendations — but never for
+        # libraries: third-party code is not ours to modify.
+        if self.tasks and status.next_steps:
+            project = self.db.get_project(path)
+            if project is None or is_modifiable(project.kind):
+                self.tasks.seed(path, status.next_steps, origin="analysis")
         return status
 
     # ---------------------------------------------------------------- worker

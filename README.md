@@ -18,6 +18,10 @@ python -m pytest tests -q          # run the test suite
 - **Infers project stage** — R&D / Development / Deployed / Dormant — from deterministic evidence, with confidence that decays as a project sits idle
 - **Assembles agent context** — genome + stage + recent activity as JSON or a ready-to-inject prompt
 - **Runs agents** — Tier 0 `health-check` works fully offline; Tier 1 `advisor` (LangGraph) activates when you provide LLM credentials, and gracefully falls back when you don't
+- **Classifies every project** — `github` (yours), `library` (third-party — agents never modify these), `local-git`, `local`; set your accounts via `DCP_GITHUB_USERS`
+- **Autopilot (propose-only)** — ranks automation-enabled projects by completion (dod.yaml assertions or genome heuristic) and runs headless coding agents on the top of the queue; every run is a reviewable proposal you approve or discard
+- **Kanban board** — per-project task cards seeded from analysis; agents move them (todo → in progress → review → done) as runs execute and verdicts land; users can emergency-discard any card
+- **Self-improvement pipeline** — bottlenecks hit while agents work on your projects become tasks for the control plane itself (mirrored in `self_improvement.md`); at most one is executed per day, and only when no other project's work is open
 
 ## Layout
 

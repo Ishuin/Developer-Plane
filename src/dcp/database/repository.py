@@ -11,7 +11,7 @@ import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from dcp.core.models import AgentRun, Decision, Inference, Project, Signal
+from dcp.core.models import AgentRun, Decision, Inference, Project, Signal, Task
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS raw_signals (
@@ -71,11 +71,26 @@ class EventSourcingDB:
             ("completion_source", "ALTER TABLE projects ADD COLUMN completion_source TEXT"),
             ("automation_enabled",
              "ALTER TABLE projects ADD COLUMN automation_enabled INTEGER NOT NULL DEFAULT 0"),
+            ("kind", "ALTER TABLE projects ADD COLUMN kind TEXT"),
         ):
             try:
                 self._execute(ddl)
             except sqlite3.OperationalError:
                 pass  # column already exists
+        self._execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                detail TEXT DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'todo',
+                pipeline TEXT NOT NULL DEFAULT 'project',
+                origin TEXT DEFAULT '',
+                run_id INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
         self._execute("""
             CREATE TABLE IF NOT EXISTS agent_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -341,6 +356,80 @@ class EventSourcingDB:
             (limit,),
         )
         return [Project(**dict(r)) for r in rows]
+
+    def set_project_kind(self, path: str, kind: str) -> None:
+        self._execute(
+            "UPDATE projects SET kind = ? WHERE path = ?", (kind, path)
+        )
+
+    # ----------------------------------------------------------------- tasks
+    def insert_task(self, task: Task) -> Task:
+        cur = self._execute(
+            "INSERT INTO tasks (project_id, title, detail, status, pipeline, "
+            "origin, run_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (task.project_id, task.title, task.detail, task.status,
+             task.pipeline, task.origin, task.run_id,
+             task.created_at, task.updated_at),
+        )
+        task.id = cur.lastrowid
+        return task
+
+    def get_task(self, task_id: int) -> Optional[Task]:
+        rows = self._query("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        return Task(**dict(rows[0])) if rows else None
+
+    def list_tasks(
+        self,
+        project_id: Optional[str] = None,
+        status: Optional[str] = None,
+        pipeline: Optional[str] = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Task]:
+        sql, clauses, params = "SELECT * FROM tasks", [], []
+        if project_id:
+            clauses.append("project_id = ?")
+            params.append(project_id)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if pipeline:
+            clauses.append("pipeline = ?")
+            params.append(pipeline)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+        params += [limit, offset]
+        return [Task(**dict(r)) for r in self._query(sql, tuple(params))]
+
+    def update_task(
+        self, task_id: int, status: Optional[str] = None,
+        run_id: Optional[int] = None,
+    ) -> None:
+        sets, params = ["updated_at = ?"], [datetime.now().isoformat()]
+        if status is not None:
+            sets.append("status = ?")
+            params.append(status)
+        if run_id is not None:
+            sets.append("run_id = ?")
+            params.append(run_id)
+        params.append(task_id)
+        self._execute(
+            f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?",  # noqa: S608
+            tuple(params),
+        )
+
+    def count_open_tasks(
+        self, project_id: Optional[str] = None, pipeline: str = "project"
+    ) -> int:
+        sql = ("SELECT COUNT(*) AS n FROM tasks WHERE pipeline = ? "
+               "AND status IN ('todo', 'in_progress', 'review')")
+        params: List[Any] = [pipeline]
+        if project_id:
+            sql += " AND project_id = ?"
+            params.append(project_id)
+        return self._query(sql, tuple(params))[0]["n"]
 
     # ------------------------------------------------------------ agent runs
     def insert_agent_run(self, run: AgentRun) -> AgentRun:

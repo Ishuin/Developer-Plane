@@ -239,6 +239,45 @@ def test_completion_evaluate_all(client, sample_tree):
     assert all(p["completion_percent"] is not None for p in items)
 
 
+def test_task_board_and_self_endpoints(client, sample_tree):
+    client.post(
+        "/api/projects/scan", params={"path": str(sample_tree), "wait": True}
+    )
+    py_proj = str(sample_tree / "py_proj")
+    # Analysis seeds kanban cards from its recommendations.
+    client.post("/api/analysis/project", params={"path": py_proj})
+
+    board = client.get("/api/tasks/board", params={"project": py_proj}).json()
+    assert board["todo"], "analysis should seed todo cards"
+    card = board["todo"][0]
+
+    # User emergency discard.
+    res = client.post(f"/api/tasks/{card['id']}/discard")
+    assert res.status_code == 200
+    board = client.get("/api/tasks/board", params={"project": py_proj}).json()
+    assert all(t["id"] != card["id"] for t in board["todo"])
+
+    # Manual move of another card.
+    if board["todo"]:
+        other = board["todo"][0]
+        res = client.post(f"/api/tasks/{other['id']}/move",
+                          params={"status": "done"})
+        assert res.status_code == 200
+
+    # Kind classification present after scan; classify_all endpoint works.
+    items = client.get("/api/projects").json()["items"]
+    assert all(p["kind"] for p in items)
+    res = client.post("/api/tasks/classify_all")
+    assert res.status_code == 200
+    assert res.json()["classified"] >= 3
+
+    # Self-improvement status + check (no tasks → skip).
+    status = client.get("/api/self/status").json()
+    assert "open_self_tasks" in status
+    check = client.post("/api/self/check").json()
+    assert check["executed"] is False
+
+
 def test_ui_served_at_root(client):
     res = client.get("/")
     assert res.status_code == 200

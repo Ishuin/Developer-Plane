@@ -7,6 +7,7 @@ from typing import Callable, List, Optional, Set
 from dcp.core.bus import EventBus, bus as default_bus
 from dcp.core.models import Project
 from dcp.database import EventSourcingDB
+from dcp.sentry.classify import classify_project
 from dcp.sentry.detectors import STRONG_INDICATORS, detect
 
 logger = logging.getLogger(__name__)
@@ -49,9 +50,15 @@ SYSTEM_TREE_SEGMENTS: Set[str] = {
 class ProjectDiscovery:
     """Scans the filesystem for project roots and records them as signals."""
 
-    def __init__(self, db: EventSourcingDB, event_bus: Optional[EventBus] = None):
+    def __init__(
+        self,
+        db: EventSourcingDB,
+        event_bus: Optional[EventBus] = None,
+        owned_users: Optional[List[str]] = None,
+    ):
         self.db = db
         self.bus = event_bus or default_bus
+        self.owned_users = owned_users or []
 
     def scan(
         self,
@@ -130,6 +137,8 @@ class ProjectDiscovery:
 
     def _register(self, project: Project) -> None:
         self.db.upsert_project(project.path, project.type)
+        project.kind = classify_project(project.path, self.owned_users)
+        self.db.set_project_kind(project.path, project.kind)
         self.db.log_signal(
             "ProjectDiscovered",
             {"path": project.path, "type": project.type},
