@@ -199,6 +199,41 @@ def test_failed_run_records_bottleneck(db, git_project, tmp_path):
     assert self_tasks and "agent-run-failure" in self_tasks[0].title
 
 
+def test_executor_pipes_brief_via_stdin(db, git_project):
+    copier = (f'"{PY}" -c "import sys; '
+              f"open('brief_copy.txt','w').write(sys.stdin.read())\"")
+    manager = make_manager(db, agent_cmd=copier)
+    manager.run_project(str(git_project))
+
+    copy = (git_project / "brief_copy.txt").read_text(encoding="utf-8")
+    assert "Rules (non-negotiable)" in copy
+    assert "Project Context" in copy
+
+
+def test_executor_brief_file_written_inside_project(db, git_project):
+    checker = (f'"{PY}" -c "import os,sys; '
+               f"sys.exit(0 if os.path.isfile('.dcp_brief.md') else 4)\"")
+    # A template containing the placeholder triggers the file-path branch.
+    settings = Settings(agent_cmd=checker + "  # {brief_file}", agent_timeout=30)
+    executor = CodeAgentExecutor(settings)
+    outcome = executor.execute(str(git_project), "brief body")
+    assert outcome.exit_code == 0
+    # Brief file is cleaned up afterwards and never counted as a change.
+    assert not (git_project / ".dcp_brief.md").exists()
+    assert ".dcp_brief.md" not in outcome.changed_files
+
+
+def test_tooling_dirs_not_counted_as_changes(db, git_project):
+    polluter = (f'"{PY}" -c "import os; os.makedirs(\'.omc\', exist_ok=True); '
+                f"open('.omc/state.json','w').write('x'); "
+                f"open('real_change.py','w').write('pass')\"")
+    manager = make_manager(db, agent_cmd=polluter)
+    manager.run_project(str(git_project))
+    run = db.get_agent_runs(limit=1)[0]
+    assert "real_change.py" in run.diff_stat
+    assert ".omc" not in run.diff_stat
+
+
 def test_executor_timeout(db, git_project):
     slow = f'"{PY}" -c "import time; time.sleep(30)"'
     manager = make_manager(db, agent_cmd=slow, timeout=2)

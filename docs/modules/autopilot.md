@@ -30,7 +30,7 @@ Automated development on a completion-priority basis (`dcp/cortex/autopilot.py`,
 `AutopilotManager.start(limit)` walks the queue **sequentially** (agent runs are heavy). Per project:
 1. Guards: skip if working tree dirty (protects WIP) or a pending run awaits verdict.
 2. Brief = context prompt ([[cortex]]) + DoD gaps + next steps from the latest status report + hard rules (never commit/push, stay in directory).
-3. Executor runs `Settings.agent_cmd` (default Claude Code headless: `claude -p "$(cat {brief_file})" --permission-mode acceptEdits`) with `DCP_AGENT_TIMEOUT` (900s). Template swaps in any CLI (`DCP_AGENT_CMD`).
+3. Executor runs `Settings.agent_cmd` (default Claude Code headless: `claude -p --permission-mode acceptEdits`, brief piped via **stdin** — portable across Windows/Unix, no shell substitution). Custom templates (`DCP_AGENT_CMD`) may use `{brief_file}` instead; the brief is then written to `.dcp_brief.md` inside the project so sandboxed agents can read it, and removed afterwards. Timeout: `DCP_AGENT_TIMEOUT` (900s). Tooling artifacts (`.omc/`, `.claude/`, the brief file) never count as proposed changes.
 4. Before/after `git status --porcelain` delta → diff stat + changed-file list; stored in `agent_runs`.
 5. `AgentRunProposed` decision logged. **Nothing is committed.**
 

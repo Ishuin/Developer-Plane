@@ -33,18 +33,29 @@ class CodeAgentExecutor:
     def execute(self, project_path: str, brief: str) -> ExecutionOutcome:
         before = _git_state(project_path)
 
-        with tempfile.NamedTemporaryFile(
-            "w", suffix=".md", delete=False, encoding="utf-8"
-        ) as fh:
-            fh.write(brief)
-            brief_file = fh.name
+        template = self.settings.agent_cmd
+        brief_file: str = ""
+        stdin_input: str = ""
+        if "{brief_file}" in template:
+            # Custom template wants a file: keep it INSIDE the project so
+            # sandboxed agents (e.g. Claude Code) are allowed to read it.
+            brief_file = os.path.join(project_path, ".dcp_brief.md")
+            with open(brief_file, "w", encoding="utf-8") as fh:
+                fh.write(brief)
+            cmd = template.format(brief_file=brief_file)
+        else:
+            # Default: pipe the brief via stdin — no shell substitution,
+            # no temp files, works identically on Windows and Unix.
+            cmd = template
+            stdin_input = brief
+
         try:
-            cmd = self.settings.agent_cmd.format(brief_file=brief_file)
             logger.info("Agent run in %s: %s", project_path, cmd)
             try:
                 res = subprocess.run(
                     cmd, shell=True, cwd=project_path,
                     capture_output=True, text=True,
+                    input=stdin_input if stdin_input else None,
                     timeout=self.settings.agent_timeout,
                 )
                 exit_code = res.returncode
@@ -54,15 +65,20 @@ class CodeAgentExecutor:
             except subprocess.TimeoutExpired:
                 exit_code, report = -1, f"timed out after {self.settings.agent_timeout}s"
         finally:
-            try:
-                os.unlink(brief_file)
-            except OSError:
-                pass
+            if brief_file:
+                try:
+                    os.unlink(brief_file)
+                except OSError:
+                    pass
 
         after = _git_state(project_path)
         changed = sorted(set(after) - set(before))
         diff_stat = _diff_stat(project_path, changed)
         return ExecutionOutcome(exit_code, report, diff_stat, changed)
+
+
+# Tooling artifacts that must never count as agent-proposed changes.
+_IGNORED_CHANGE_PREFIXES = (".omc", ".claude", ".dcp_brief", "AGENT_NOTES.md")
 
 
 def _git_state(path: str) -> Dict[str, str]:
@@ -76,8 +92,15 @@ def _git_state(path: str) -> Dict[str, str]:
         )
         state = {}
         for line in res.stdout.splitlines():
-            if len(line) > 3:
-                state[line[3:].strip()] = line[:2]
+            if len(line) <= 3:
+                continue
+            rel = line[3:].strip().strip('"')
+            norm = rel.replace("\\", "/")
+            if norm.startswith("./"):
+                norm = norm[2:]
+            if norm.startswith(_IGNORED_CHANGE_PREFIXES):
+                continue
+            state[rel] = line[:2]
         return state
     except (OSError, subprocess.TimeoutExpired):
         return {}

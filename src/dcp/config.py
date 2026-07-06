@@ -50,12 +50,14 @@ class Settings:
         default_factory=lambda: os.environ.get("DCP_GITHUB_USERS", "Ishuin")
     )
 
-    # Autopilot: headless coding-agent command template. {brief_file} is
-    # replaced with the path to the task brief written for the run.
+    # Autopilot: headless coding-agent command template. The task brief is
+    # piped to the command via stdin. If the template contains {brief_file},
+    # the brief is instead written to a file inside the project directory
+    # and the placeholder replaced with its path.
     agent_cmd: str = field(
         default_factory=lambda: os.environ.get(
             "DCP_AGENT_CMD",
-            'claude -p "$(cat {brief_file})" --permission-mode acceptEdits',
+            "claude -p --permission-mode acceptEdits",
         )
     )
     agent_timeout: int = field(
