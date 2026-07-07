@@ -12,7 +12,14 @@ from dcp.agents import gitops
 router = APIRouter(prefix="/api/wip", tags=["wip"])
 
 
-def _check(path: str) -> None:
+def _check(request: Request, path: str) -> None:
+    """WIP operations are limited to projects registered by discovery —
+    never arbitrary filesystem paths from the network."""
+    if request.app.state.dcp.db.get_project(path) is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Unknown project — only registered projects can be triaged",
+        )
     if not os.path.isdir(path):
         raise HTTPException(status_code=404, detail=f"Not a directory: {path}")
     if not gitops.is_repo(path):
@@ -21,7 +28,7 @@ def _check(path: str) -> None:
 
 @router.get("")
 def wip_overview(request: Request, path: str):
-    _check(path)
+    _check(request, path)
     return {
         "path": path,
         "branch": gitops.current_branch(path),
@@ -34,19 +41,20 @@ def wip_overview(request: Request, path: str):
 
 @router.get("/diff")
 def wip_diff(request: Request, path: str):
-    _check(path)
+    _check(request, path)
     return {"diff": gitops.diff_text(path)}
 
 
 class TestRequest(BaseModel):
     path: str
-    command: Optional[str] = None
 
 
 @router.post("/test")
 def wip_test(request: Request, body: TestRequest):
-    _check(body.path)
-    result = gitops.run_tests(body.path, body.command)
+    """Runs ONLY the auto-detected test command (dod.yaml / pytest / npm /
+    cargo / go). Arbitrary commands from the network are not accepted."""
+    _check(request, body.path)
+    result = gitops.run_tests(body.path)
     request.app.state.dcp.db.log_signal(
         "WipTestRun", {k: v for k, v in result.items() if k != "output"},
         project_id=body.path,
@@ -63,7 +71,7 @@ class CommitRequest(BaseModel):
 
 @router.post("/commit")
 def wip_commit(request: Request, body: CommitRequest):
-    _check(body.path)
+    _check(request, body.path)
     try:
         branch, sha = gitops.commit_wip_to_branch(
             body.path, body.message, body.branch
@@ -94,7 +102,7 @@ class DiscardRequest(BaseModel):
 
 @router.post("/discard")
 def wip_discard(request: Request, body: DiscardRequest):
-    _check(body.path)
+    _check(request, body.path)
     if not body.confirm:
         raise HTTPException(status_code=400, detail="confirm=true required")
     try:

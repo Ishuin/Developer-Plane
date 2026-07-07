@@ -128,11 +128,20 @@ def test_wip_api_flow(client, tmp_path):
     proj = tmp_path / "api_proj"
     proj.mkdir()
     (proj / "app.py").write_text("x = 1\n")
+    (proj / "dod.yaml").write_text(
+        "assertions:\n  - name: tests pass\n    type: command\n"
+        f"    run: '\"{PY}\" -c \"exit(0)\"'\n"
+    )
     git(proj, "init", "-q")
     git(proj, "add", "-A")
     git(proj, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init")
     git(proj, "remote", "add", "origin", str(bare))
     (proj / "app.py").write_text("x = 2\n")
+
+    # Security boundary: unregistered paths are rejected outright.
+    assert client.get("/api/wip", params={"path": str(proj)}).status_code == 404
+
+    client.post("/api/projects/scan", params={"path": str(tmp_path), "wait": True})
 
     overview = client.get("/api/wip", params={"path": str(proj)}).json()
     assert overview["files"] and overview["remote"]
@@ -140,10 +149,13 @@ def test_wip_api_flow(client, tmp_path):
     diff = client.get("/api/wip/diff", params={"path": str(proj)}).json()
     assert "x = 2" in diff["diff"]
 
+    # Only the detected command runs; a client-supplied command is ignored.
     res = client.post("/api/wip/test",
-                      json={"path": str(proj),
-                            "command": f'"{PY}" -c "exit(0)"'})
-    assert res.json()["passed"] is True
+                      json={"path": str(proj), "command": "echo pwned > hack.txt"})
+    body = res.json()
+    assert body["ran"] is True and body["passed"] is True
+    assert "exit(0)" in body["command"]
+    assert not (proj / "hack.txt").exists()
 
     # Discard requires confirmation.
     assert client.post("/api/wip/discard",
@@ -160,7 +172,9 @@ def test_wip_api_flow(client, tmp_path):
                       json={"path": str(proj), "message": "again"})
     assert res.status_code == 409
 
-    # Non-repo path → 400.
-    plain = tmp_path / "plain"
+    # Registered but non-repo project path → 400.
+    plain = tmp_path / "plain_proj"
     plain.mkdir()
+    (plain / "requirements.txt").write_text("")
+    client.post("/api/projects/scan", params={"path": str(tmp_path), "wait": True})
     assert client.get("/api/wip", params={"path": str(plain)}).status_code == 400
