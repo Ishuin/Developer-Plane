@@ -703,9 +703,16 @@ async function pollAutopilot() {
   clearInterval(apPoll);
   apPoll = null;
   document.getElementById('runTopBtn').disabled = false;
-  document.getElementById('apStatus').textContent = s.total
-    ? `Batch finished: ${s.done} done, ${s.skipped} skipped, ${s.failed} failed.`
-    : 'Nothing to run — no automation-enabled projects. Tick an Automation checkbox in the queue, then Run Top.';
+  if (!s.total) {
+    document.getElementById('apStatus').textContent =
+      'Nothing to run — no automation-enabled projects. Tick an Automation checkbox in the queue, then Run Top.';
+    return;
+  }
+  const detail = (s.log || [])
+    .map(line => `<div class="muted" style="margin-left:12px;">· ${esc(line)}</div>`)
+    .join('');
+  document.getElementById('apStatus').innerHTML =
+    `Batch finished: ${s.done} done, ${s.skipped} skipped, ${s.failed} failed.${detail}`;
 }
 
 async function verdict(id, action) {

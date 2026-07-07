@@ -124,10 +124,11 @@ class AutopilotManager:
                 with self._lock:
                     self._status["current"] = path
                 try:
-                    outcome = self.run_project(path)
+                    outcome, reason = self.run_project(path)
                     with self._lock:
                         self._status[outcome] += 1
-                        self._status["log"].append(f"{outcome}: {path}")
+                        suffix = f" — {reason}" if reason else ""
+                        self._status["log"].append(f"{outcome}: {path}{suffix}")
                 except Exception as exc:  # noqa: BLE001 - isolate per project
                     logger.exception("Autopilot failed on %s", path)
                     with self._lock:
@@ -140,8 +141,8 @@ class AutopilotManager:
                 self._status["finished_at"] = datetime.now().isoformat()
 
     # --------------------------------------------------------------- one run
-    def run_project(self, path: str) -> str:
-        """Returns 'done' or 'skipped' (guards); raises on hard failure."""
+    def run_project(self, path: str) -> tuple:
+        """Returns ('done'|'skipped', reason|None); raises on hard failure."""
         if not os.path.isdir(path):
             raise FileNotFoundError(f"directory gone: {path}")
 
@@ -153,18 +154,21 @@ class AutopilotManager:
                 "AgentRunRefused", {"reason": f"kind={project.kind}"},
                 project_id=path,
             )
-            return "skipped"
+            return "skipped", f"{project.kind} is read-only"
 
         genome = build_genome(path)
         # Guard 1: never touch a repo with pre-existing uncommitted work.
         # Files the control plane itself generates don't count as user WIP.
-        if genome.git.get("is_repo") and _user_dirty_files(path):
+        dirty = genome.git.get("is_repo") and _user_dirty_files(path)
+        if dirty:
             logger.info("Skip %s: dirty working tree", path)
-            return "skipped"
+            return "skipped", (
+                f"uncommitted changes ({len(dirty)} file(s)) — commit or stash first"
+            )
         # Guard 2: one pending proposal per project.
         if self.db.get_agent_runs(limit=1, project_id=path, pending_only=True):
             logger.info("Skip %s: pending run awaiting verdict", path)
-            return "skipped"
+            return "skipped", "previous run awaits your approve/discard"
 
         completion = self.completion.evaluate(path, genome=genome)
         stage = self.inference.infer_stage(path, genome=genome)
@@ -204,7 +208,7 @@ class AutopilotManager:
              "task_ids": [t.id for t in board_tasks]},
             project_id=path,
         )
-        return "done"
+        return "done", None
 
     def _latest_next_steps(self, path: str) -> List[str]:
         """Recommendations from the latest status analysis, if any."""
@@ -248,6 +252,13 @@ class AutopilotManager:
             "AgentRunVerdict", {"run_id": run_id, "verdict": verdict},
             project_id=run.project_id,
         )
+        # Re-score immediately: the verdict changed the tree (kept or
+        # reverted), so completion must reflect the new reality.
+        try:
+            if os.path.isdir(run.project_id):
+                self.completion.evaluate(run.project_id)
+        except Exception:  # noqa: BLE001 - scoring failure must not block verdicts
+            logger.exception("Post-verdict completion re-score failed")
         return result
 
 

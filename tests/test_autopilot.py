@@ -63,8 +63,8 @@ def test_queue_ordering(db):
 
 def test_run_project_records_run_and_decision(db, git_project):
     manager = make_manager(db)
-    outcome = manager.run_project(str(git_project))
-    assert outcome == "done"
+    outcome, reason = manager.run_project(str(git_project))
+    assert outcome == "done" and reason is None
 
     runs = db.get_agent_runs(limit=5)
     assert len(runs) == 1
@@ -82,15 +82,19 @@ def test_run_project_records_run_and_decision(db, git_project):
 def test_dirty_tree_skipped(db, git_project):
     (git_project / "main.py").write_text("print('WIP')\n")  # uncommitted change
     manager = make_manager(db)
-    assert manager.run_project(str(git_project)) == "skipped"
+    outcome, reason = manager.run_project(str(git_project))
+    assert outcome == "skipped"
+    assert "uncommitted" in reason
     assert db.count_agent_runs() == 0
 
 
 def test_pending_run_blocks_second(db, git_project):
     manager = make_manager(db, agent_cmd=FAKE_NOOP)
-    assert manager.run_project(str(git_project)) == "done"
+    assert manager.run_project(str(git_project))[0] == "done"
     # First run pending verdict → second run refused.
-    assert manager.run_project(str(git_project)) == "skipped"
+    outcome, reason = manager.run_project(str(git_project))
+    assert outcome == "skipped"
+    assert "approve/discard" in reason
     assert db.count_agent_runs() == 1
 
 
@@ -136,7 +140,9 @@ def test_library_projects_never_touched(db, git_project):
     db.set_project_kind(path, "library")
 
     manager = make_manager(db)
-    assert manager.run_project(path) == "skipped"
+    outcome, reason = manager.run_project(path)
+    assert outcome == "skipped"
+    assert "read-only" in reason
     assert db.count_agent_runs() == 0
     refusals = [d for d in db.get_decisions(limit=10)
                 if d.decision_type == "AgentRunRefused"]
