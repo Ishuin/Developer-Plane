@@ -615,6 +615,14 @@ async function selfCheck() {
 }
 
 /* WIP triage */
+document.getElementById('apStatus').addEventListener('click', e => {
+  const link = e.target.closest('.wip-link');
+  if (link) {
+    e.preventDefault();
+    reviewWipFor(link.dataset.path);
+  }
+});
+
 async function reviewWipFor(path) {
   // Jump from an autopilot skip line straight into triage.
   document.querySelectorAll('nav button').forEach(b =>
@@ -831,7 +839,9 @@ async function pollAutopilot() {
       let extra = '';
       const wipMatch = line.match(/^skipped: (.+?) — uncommitted changes/);
       if (wipMatch) {
-        extra = ` <a href="#" onclick="event.preventDefault(); reviewWipFor('${pathArg(wipMatch[1])}')">Review WIP →</a>`;
+        // Path goes into an HTML-escaped data attribute; the click handler
+        // is attached by delegation — no JS-string context to escape for.
+        extra = ` <a href="#" class="wip-link" data-path="${esc(wipMatch[1])}">Review WIP →</a>`;
       }
       return `<div class="muted" style="margin-left:12px;">· ${esc(line)}${extra}</div>`;
     })
