@@ -163,7 +163,7 @@ class AutopilotManager:
         if dirty:
             logger.info("Skip %s: dirty working tree", path)
             return "skipped", (
-                f"uncommitted changes ({len(dirty)} file(s)) — commit or stash first"
+                f"uncommitted changes ({len(dirty)} file(s)) — use Review WIP"
             )
         # Guard 2: one pending proposal per project.
         if self.db.get_agent_runs(limit=1, project_id=path, pending_only=True):

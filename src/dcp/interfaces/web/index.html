@@ -615,6 +615,17 @@ async function selfCheck() {
 }
 
 /* WIP triage */
+async function reviewWipFor(path) {
+  // Jump from an autopilot skip line straight into triage.
+  document.querySelectorAll('nav button').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === 'projects'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-projects').classList.add('active');
+  await showDetail(path);
+  await openWip(path);
+  document.getElementById('detail').scrollIntoView({ behavior: 'smooth' });
+}
+
 async function openWip(path) {
   const el = document.getElementById('wipPanel');
   el.innerHTML = '<p class="muted">Loading WIP…</p>';
@@ -816,7 +827,14 @@ async function pollAutopilot() {
     return;
   }
   const detail = (s.log || [])
-    .map(line => `<div class="muted" style="margin-left:12px;">· ${esc(line)}</div>`)
+    .map(line => {
+      let extra = '';
+      const wipMatch = line.match(/^skipped: (.+?) — uncommitted changes/);
+      if (wipMatch) {
+        extra = ` <a href="#" onclick="event.preventDefault(); reviewWipFor('${pathArg(wipMatch[1])}')">Review WIP →</a>`;
+      }
+      return `<div class="muted" style="margin-left:12px;">· ${esc(line)}${extra}</div>`;
+    })
     .join('');
   document.getElementById('apStatus').innerHTML =
     `Batch finished: ${s.done} done, ${s.skipped} skipped, ${s.failed} failed.${detail}`;
