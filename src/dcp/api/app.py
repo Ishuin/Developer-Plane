@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from dcp import __version__
 from dcp.api.deps import AppState, build_state
 from dcp.api.routes import (
-    agents, analysis, autopilot, projects, tasks, trinity, watcher,
+    agents, analysis, autopilot, projects, tasks, trinity, watcher, wip,
 )
 from dcp.config import Settings, get_settings
 
@@ -43,6 +43,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(trinity.router)
     app.include_router(agents.router)
     app.include_router(analysis.router)
+    app.include_router(wip.router)
     app.include_router(autopilot.router)
     app.include_router(autopilot.completion_router)
     app.include_router(tasks.router)

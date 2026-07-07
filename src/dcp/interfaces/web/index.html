@@ -491,7 +491,10 @@ async function showDetail(path) {
          <button class="btn" style="padding:3px 10px; font-size:12px;"
            onclick="event.stopPropagation(); analyzeOne('${safePath}')">Analyze</button>
          <label style="font-size:12px; color:var(--muted); margin-left:6px;">
-           <input type="checkbox" onchange="toggleAuto('${safePath}', this.checked)"> automate</label></p>
+           <input type="checkbox" onchange="toggleAuto('${safePath}', this.checked)"> automate</label>
+         <button class="btn" style="padding:3px 10px; font-size:12px;"
+           onclick="event.stopPropagation(); openWip('${safePath}')">Review WIP</button></p>
+      <div id="wipPanel"></div>
       <ul>${stage.evidence.map(e => `<li>${esc(e)}</li>`).join('')}</ul>
       <pre>${esc(JSON.stringify(genome.git, null, 2))}</pre>
       ${reportHtml}`;
@@ -608,6 +611,110 @@ async function selfCheck() {
   await loadBoard();
   if (!res.executed) {
     document.getElementById('selfInfo').textContent += ` — skipped: ${res.reason}`;
+  }
+}
+
+/* WIP triage */
+async function openWip(path) {
+  const el = document.getElementById('wipPanel');
+  el.innerHTML = '<p class="muted">Loading WIP…</p>';
+  try {
+    const [wip, diff] = await Promise.all([
+      api('/api/wip?path=' + encodeURIComponent(path)),
+      api('/api/wip/diff?path=' + encodeURIComponent(path)),
+    ]);
+    const safePath = pathArg(path);
+    if (!wip.files.length) {
+      el.innerHTML = '<p class="muted">Working tree clean — nothing to triage. Autopilot can run here.</p>';
+      return;
+    }
+    el.innerHTML = `
+      <hr style="border:none; border-top:1px solid var(--border); margin:14px 0;">
+      <h3>WIP triage — ${wip.files.length} uncommitted file(s) on <span class="mono">${esc(wip.branch)}</span></h3>
+      <p class="muted" style="font-size:13px;">${wip.github
+        ? 'GitHub remote: ' + esc(wip.github) + ' — commit will push a branch and open the PR page.'
+        : (wip.remote ? 'Non-GitHub remote — branch will be pushed, open PR manually.'
+                      : 'No remote — changes will be committed to a local branch only.')}</p>
+      <ul style="font-size:13px; max-height:120px; overflow-y:auto;">
+        ${wip.files.map(f => `<li class="mono">${esc(f.status)} ${esc(f.path)}</li>`).join('')}
+      </ul>
+      <details style="margin:8px 0;"><summary style="cursor:pointer; font-size:13px;">View diff</summary>
+        <pre style="max-height:300px; overflow:auto;">${esc(diff.diff || '(empty)')}</pre></details>
+      <div class="toolbar" style="margin:8px 0;">
+        <button class="btn" id="wipTestBtn" onclick="wipTest('${safePath}')">
+          Run tests${wip.test_command ? '' : ' (none detected)'}</button>
+        <span class="mono muted" style="align-self:center; font-size:12px;">${esc(wip.test_command || '')}</span>
+      </div>
+      <pre id="wipTestOut" style="display:none; max-height:220px; overflow:auto;"></pre>
+      <div class="toolbar" style="margin:8px 0;">
+        <input type="text" id="wipMsg" placeholder="Commit message" style="flex:1;">
+        <label style="font-size:13px; align-self:center;">
+          <input type="checkbox" id="wipPush" ${wip.remote ? 'checked' : 'disabled'}> push${wip.github ? ' + PR' : ''}</label>
+        <button class="btn primary" onclick="wipCommit('${safePath}')">Commit${wip.github ? ' → PR' : ''}</button>
+        <button class="btn" onclick="wipDiscard('${safePath}')">Discard all changes</button>
+      </div>
+      <div id="wipResult" class="muted" style="font-size:13px;"></div>`;
+  } catch (err) {
+    el.innerHTML = '<p class="muted">WIP error: ' + esc(err.message) + '</p>';
+  }
+}
+
+async function wipTest(path) {
+  const out = document.getElementById('wipTestOut');
+  const btn = document.getElementById('wipTestBtn');
+  btn.disabled = true;
+  out.style.display = 'block';
+  out.textContent = 'Running tests…';
+  try {
+    const res = await api('/api/wip/test', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+    out.textContent = res.ran
+      ? `${res.passed ? 'PASSED' : 'FAILED'} (exit ${res.exit_code}) — ${res.command}\n\n${res.output}`
+      : 'Not run: ' + res.reason;
+  } catch (err) {
+    out.textContent = 'Test error: ' + err.message;
+  }
+  btn.disabled = false;
+}
+
+async function wipCommit(path) {
+  const message = document.getElementById('wipMsg').value.trim();
+  if (!message) { alert('Write a commit message first.'); return; }
+  const push = document.getElementById('wipPush').checked;
+  const resultEl = document.getElementById('wipResult');
+  resultEl.textContent = 'Committing…';
+  try {
+    const res = await api('/api/wip/commit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, message, push }),
+    });
+    let text = `Committed ${res.sha} on ${res.branch}.`;
+    if (res.pushed) text += ' Pushed.';
+    else if (push && res.reason) text += ' Push failed: ' + res.reason;
+    resultEl.innerHTML = esc(text) + (res.pr_url
+      ? ` <a href="${esc(res.pr_url)}" target="_blank">Open PR page →</a>` : '');
+    if (res.pr_url) window.open(res.pr_url, '_blank');
+    await Promise.all([loadProjects(), showDetail(path)]);
+  } catch (err) {
+    resultEl.textContent = 'Commit error: ' + err.message;
+  }
+}
+
+async function wipDiscard(path) {
+  if (!confirm('Discard ALL uncommitted changes in this project? This cannot be undone.')) return;
+  if (!confirm('Really sure? Every uncommitted edit and new file will be lost.')) return;
+  try {
+    const res = await api('/api/wip/discard', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, confirm: true }),
+    });
+    document.getElementById('wipResult').textContent =
+      `Discarded ${res.discarded} change(s). Tree clean.`;
+    await Promise.all([loadProjects(), openWip(path)]);
+  } catch (err) {
+    alert('Discard failed: ' + err.message);
   }
 }
 
