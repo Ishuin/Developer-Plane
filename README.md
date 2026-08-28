@@ -7,7 +7,7 @@ A local-first, event-sourced **Context Fabric**: persistent memory and nervous s
 ```bash
 pip install -r requirements.txt
 python src/main.py                 # API + web UI at http://127.0.0.1:8787
-python src/main.py --scan D:\Projects   # one-shot discovery, no server
+python src/main.py --scan D:\\Projects   # one-shot discovery, no server
 python -m pytest tests -q          # run the test suite
 ```
 
@@ -23,9 +23,33 @@ python -m pytest tests -q          # run the test suite
 - **Kanban board** — per-project task cards seeded from analysis; agents move them (todo → in progress → review → done) as runs execute and verdicts land; users can emergency-discard any card
 - **Self-improvement pipeline** — bottlenecks hit while agents work on your projects become tasks for the control plane itself (mirrored in `self_improvement.md`); at most one is executed per day, and only when no other project's work is open
 
-## Layout
+## Architecture
 
 ```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Interfaces                              │
+│   Web UI   │   TUI   │   FastAPI REST   │   MCP Tool Server     │
+└─────────────┬──────────┬──────────────┬─────────────────────────┘
+              │          │              │
+┌─────────────▼──────────▼──────────────▼─────────────────────────┐
+│                        Cortex                                  │
+│   Inference   │   Context Assembly   │   Agent Router          │
+└─────────────┬──────────┬──────────────┬─────────────────────────┘
+              │          │              │
+┌─────────────▼──────────▼──────────────▼─────────────────────────┐
+│                        Sentry                                  │
+│   Discovery   │   Filesystem Watcher   │   Genome Builder       │
+└─────────────┬──────────┬──────────────┬─────────────────────────┘
+              │          │              │
+┌─────────────▼──────────▼──────────────▼─────────────────────────┐
+│                     Data Trinity                               │
+│              SQLite Event Store   +   File System               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Layout
+
+```text
 src/dcp/
   core/        models + event bus
   database/    SQLite event store (Data Trinity)
@@ -40,6 +64,13 @@ tests/         pytest suite
 
 Start reading at `docs/architecture.md`.
 
+## Status
+
+- Core event store and genome inference operational
+- Tier 0 health checks available without LLM credentials
+- Tier 1 LangGraph advisor activates with `DCP_AI_ENABLED=1`
+- Local project discovery and filesystem watching implemented
+
 ## AI tier (optional)
 
 ```bash
@@ -51,3 +82,7 @@ set DCP_LLM_API_BASE=http://localhost:4000   # e.g. local litellm proxy
 ```
 
 Everything else works without any of this.
+
+## License
+
+[Apache-2.0](LICENSE)
