@@ -11,7 +11,7 @@ OpenAI-compatible endpoint) adds a narrative summary and next steps.
 import os
 import subprocess
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 

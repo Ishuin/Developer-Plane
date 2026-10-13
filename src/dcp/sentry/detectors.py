@@ -4,7 +4,7 @@ Each detector is declarative data; `detect` scores a directory's file list
 against every strategy and returns the best match.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Sequence, Tuple
 
 

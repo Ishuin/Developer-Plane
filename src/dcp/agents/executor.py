@@ -9,7 +9,6 @@ before/after git delta so the run can be reviewed and reverted.
 import logging
 import os
 import subprocess
-import tempfile
 from typing import Dict, List, Tuple
 
 from dcp.config import Settings
