@@ -69,6 +69,45 @@ def github_repo_slug(path: str) -> Optional[str]:
     return f"{match.group(1)}/{match.group(2)}" if match else None
 
 
+# ------------------------------------------------------------------ venv
+_VENV_NAME = re.compile(r"^\.?(venv|env|virtualenv)", re.IGNORECASE)
+
+
+def _is_venv(candidate: str) -> bool:
+    return (os.path.isfile(os.path.join(candidate, "Scripts", "python.exe"))
+            or os.path.isfile(os.path.join(candidate, "bin", "python")))
+
+
+def find_venv(path: str) -> Optional[str]:
+    """Virtualenv for a project: its own directory first, then the parent.
+
+    Matches any directory whose name starts with venv/env/virtualenv
+    (dot-prefixed too — .venv, venv311, .env312 …) and that actually
+    contains a Python interpreter.
+    """
+    for base in (path, os.path.dirname(os.path.abspath(path))):
+        try:
+            entries = sorted(os.listdir(base))
+        except OSError:
+            continue
+        for entry in entries:
+            candidate = os.path.join(base, entry)
+            if (os.path.isdir(candidate) and _VENV_NAME.match(entry)
+                    and _is_venv(candidate)):
+                return candidate
+    return None
+
+
+def _venv_environment(venv: str) -> Dict[str, str]:
+    """Environment dict equivalent to 'activating' the venv."""
+    env = dict(os.environ)
+    bindir = os.path.join(venv, "Scripts" if os.name == "nt" else "bin")
+    env["PATH"] = bindir + os.pathsep + env.get("PATH", "")
+    env["VIRTUAL_ENV"] = venv
+    env.pop("PYTHONHOME", None)
+    return env
+
+
 # ------------------------------------------------------------------ testing
 def detect_test_command(path: str) -> Optional[str]:
     """The project's own test entry point, best effort."""
@@ -102,17 +141,21 @@ def run_tests(path: str, command: Optional[str] = None) -> Dict[str, Any]:
     if not command:
         return {"ran": False, "reason": "no test command detected "
                                         "(add a dod.yaml 'tests' assertion)"}
+    venv = find_venv(path)
+    env = _venv_environment(venv) if venv else None
     try:
         res = subprocess.run(
             command, shell=True, cwd=path, capture_output=True, text=True,
-            timeout=_TEST_TIMEOUT,
+            timeout=_TEST_TIMEOUT, env=env,
         )
         output = ((res.stdout or "") + ("\n" + res.stderr if res.stderr else ""))
         return {"ran": True, "command": command, "exit_code": res.returncode,
-                "passed": res.returncode == 0, "output": output[-10_000:]}
+                "passed": res.returncode == 0, "venv": venv,
+                "output": output[-10_000:]}
     except subprocess.TimeoutExpired:
         return {"ran": True, "command": command, "exit_code": -1,
-                "passed": False, "output": f"timed out after {_TEST_TIMEOUT}s"}
+                "passed": False, "venv": venv,
+                "output": f"timed out after {_TEST_TIMEOUT}s"}
 
 
 # ----------------------------------------------------------- commit + PR

@@ -108,6 +108,62 @@ def test_pr_url_only_for_github(tmp_path):
     assert gitops.github_repo_slug(str(proj)) == "Ishuin/demo"
 
 
+def make_fake_venv(base, name):
+    scripts = base / name / ("Scripts" if sys.platform == "win32" else "bin")
+    scripts.mkdir(parents=True)
+    exe = scripts / ("python.exe" if sys.platform == "win32" else "python")
+    exe.write_text("")
+    return base / name
+
+
+def test_find_venv_in_project(tmp_path):
+    proj = tmp_path / "p"
+    proj.mkdir()
+    venv = make_fake_venv(proj, ".venv")
+    assert gitops.find_venv(str(proj)) == str(venv)
+
+
+def test_find_venv_matches_suffixed_names(tmp_path):
+    proj = tmp_path / "p"
+    proj.mkdir()
+    venv = make_fake_venv(proj, "venv311")
+    assert gitops.find_venv(str(proj)) == str(venv)
+
+
+def test_find_venv_falls_back_to_parent(tmp_path):
+    proj = tmp_path / "p"
+    proj.mkdir()
+    venv = make_fake_venv(tmp_path, "venv")
+    assert gitops.find_venv(str(proj)) == str(venv)
+
+
+def test_find_venv_none(tmp_path):
+    proj = tmp_path / "p"
+    proj.mkdir()
+    (proj / "venv").mkdir()  # empty dir, no interpreter → not a venv
+    assert gitops.find_venv(str(proj)) is None
+
+
+def test_run_tests_activates_venv(tmp_path):
+    proj = tmp_path / "p"
+    proj.mkdir()
+    venv = make_fake_venv(proj, ".venv")
+    result = gitops.run_tests(
+        str(proj),
+        command=f'"{PY}" -c "import os; print(os.environ[\'VIRTUAL_ENV\'])"',
+    )
+    assert result["passed"] is True
+    assert result["venv"] == str(venv)
+    assert str(venv) in result["output"]
+
+
+def test_run_tests_without_venv_reports_none(tmp_path):
+    proj = tmp_path / "p"
+    proj.mkdir()
+    result = gitops.run_tests(str(proj), command=f'"{PY}" -c "exit(0)"')
+    assert result["passed"] is True and result["venv"] is None
+
+
 # --------------------------------------------------------------------- API
 @pytest.fixture
 def client(tmp_path):

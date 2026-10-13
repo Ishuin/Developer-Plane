@@ -690,7 +690,9 @@ async function wipTest(path) {
       body: JSON.stringify({ path }),
     });
     out.textContent = res.ran
-      ? `${res.passed ? 'PASSED' : 'FAILED'} (exit ${res.exit_code}) — ${res.command}\n\n${res.output}`
+      ? `${res.passed ? 'PASSED' : 'FAILED'} (exit ${res.exit_code}) — ${res.command}`
+        + (res.venv ? `\n[venv: ${res.venv}]` : '\n[no venv found — ran with system Python]')
+        + `\n\n${res.output}`
       : 'Not run: ' + res.reason;
   } catch (err) {
     out.textContent = 'Test error: ' + err.message;
