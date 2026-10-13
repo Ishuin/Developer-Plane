@@ -52,6 +52,10 @@ def diff_text(path: str) -> str:
 
 
 def current_branch(path: str) -> str:
+    """Current branch name; works on unborn HEADs (fresh repos) too."""
+    res = _git(path, "symbolic-ref", "--short", "HEAD")
+    if res.returncode == 0 and res.stdout.strip():
+        return res.stdout.strip()
     return _git(path, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
 
 
@@ -73,9 +77,22 @@ def github_repo_slug(path: str) -> Optional[str]:
 _VENV_NAME = re.compile(r"^\.?(venv|env|virtualenv)", re.IGNORECASE)
 
 
+def _venv_bin(venv: str) -> Optional[str]:
+    """The venv's interpreter directory (Scripts/ or bin/), whichever exists.
+
+    Checks the actual layout instead of assuming os.name: a bin/ venv on
+    Windows (and a Scripts/ venv elsewhere) must still resolve correctly.
+    """
+    for subdir in ("Scripts", "bin"):
+        bindir = os.path.join(venv, subdir)
+        if (os.path.isfile(os.path.join(bindir, "python.exe"))
+                or os.path.isfile(os.path.join(bindir, "python"))):
+            return bindir
+    return None
+
+
 def _is_venv(candidate: str) -> bool:
-    return (os.path.isfile(os.path.join(candidate, "Scripts", "python.exe"))
-            or os.path.isfile(os.path.join(candidate, "bin", "python")))
+    return _venv_bin(candidate) is not None
 
 
 def find_venv(path: str) -> Optional[str]:
@@ -101,7 +118,9 @@ def find_venv(path: str) -> Optional[str]:
 def _venv_environment(venv: str) -> Dict[str, str]:
     """Environment dict equivalent to 'activating' the venv."""
     env = dict(os.environ)
-    bindir = os.path.join(venv, "Scripts" if os.name == "nt" else "bin")
+    bindir = _venv_bin(venv) or os.path.join(
+        venv, "Scripts" if os.name == "nt" else "bin"
+    )
     env["PATH"] = bindir + os.pathsep + env.get("PATH", "")
     env["VIRTUAL_ENV"] = venv
     env.pop("PYTHONHOME", None)
@@ -140,7 +159,8 @@ def run_tests(path: str, command: Optional[str] = None) -> Dict[str, Any]:
     command = command or detect_test_command(path)
     if not command:
         return {"ran": False, "reason": "no test command detected "
-                                        "(add a dod.yaml 'tests' assertion)"}
+                                        "(add a command assertion named 'tests' "
+                                        "to dod.yaml)"}
     venv = find_venv(path)
     env = _venv_environment(venv) if venv else None
     try:
@@ -173,12 +193,17 @@ def commit_wip_to_branch(
         raise RuntimeError("nothing to commit — working tree is clean")
 
     branch = branch or f"dcp/wip-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    original = current_branch(path)
     checkout = _git(path, "checkout", "-b", branch)
     if checkout.returncode != 0:
         raise RuntimeError(f"branch creation failed: {checkout.stderr.strip()}")
     _git(path, "add", "-A")
     commit = _git(path, "commit", "-m", message or "WIP triage via Developer Control Plane")
     if commit.returncode != 0:
+        # Never strand the repo on the half-made branch (e.g. git identity
+        # not configured): return to where the user was, keep the work.
+        if original and original != branch:
+            _git(path, "checkout", original)
         raise RuntimeError(f"commit failed: {commit.stderr.strip() or commit.stdout.strip()}")
     sha = _git(path, "rev-parse", "--short", "HEAD").stdout.strip()
     return branch, sha

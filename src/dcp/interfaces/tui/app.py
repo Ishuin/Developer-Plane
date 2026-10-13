@@ -1,5 +1,13 @@
 """Rich-based terminal UI with paginated project listing."""
 
+if __name__ == "__main__":  # direct execution: make `import dcp` work
+    import os
+    import sys
+
+    sys.path.insert(
+        0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    )
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table

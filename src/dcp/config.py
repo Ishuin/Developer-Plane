@@ -5,13 +5,28 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+def _default_db_path() -> str:
+    """Stable default database location.
+
+    Order: explicit env var → a legacy context_fabric.db in the current
+    directory (pre-0.2 behaviour, keeps existing data working) → a single
+    canonical copy under ~/.dcp so running the tool from different
+    directories never scatters databases around.
+    """
+    env = os.environ.get("DCP_DB_PATH")
+    if env:
+        return env
+    legacy = Path.cwd() / "context_fabric.db"
+    if legacy.is_file():
+        return str(legacy)
+    return str(Path.home() / ".dcp" / "context_fabric.db")
+
+
 @dataclass
 class Settings:
     """Runtime settings. Everything is overridable via environment variables."""
 
-    db_path: str = field(
-        default_factory=lambda: os.environ.get("DCP_DB_PATH", "context_fabric.db")
-    )
+    db_path: str = field(default_factory=_default_db_path)
     scan_root: str = field(
         default_factory=lambda: os.environ.get("DCP_SCAN_ROOT", ".")
     )

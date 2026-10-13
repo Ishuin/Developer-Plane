@@ -3,6 +3,7 @@
 Usage:
     python src/main.py            # serve API + web UI on http://127.0.0.1:8787
     python src/main.py --scan .   # one-shot discovery scan, then exit
+    python src/main.py --tui      # terminal UI, then exit
 """
 
 import argparse
@@ -17,7 +18,16 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--scan", metavar="PATH", help="run discovery once and exit")
+    parser.add_argument("--tui", action="store_true",
+                        help="open the terminal UI and exit")
     args = parser.parse_args()
+
+    if args.tui:
+        from dcp.config import get_settings
+        from dcp.interfaces.tui import run_tui
+
+        run_tui(get_settings().scan_root)
+        return
 
     if args.scan:
         from dcp.config import get_settings

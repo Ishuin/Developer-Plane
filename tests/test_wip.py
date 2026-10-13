@@ -1,5 +1,6 @@
 """Tests for WIP triage: gitops helpers and /api/wip endpoints."""
 
+import os
 import subprocess
 import sys
 
@@ -234,3 +235,48 @@ def test_wip_api_flow(client, tmp_path):
     (plain / "requirements.txt").write_text("")
     client.post("/api/projects/scan", params={"path": str(tmp_path), "wait": True})
     assert client.get("/api/wip", params={"path": str(plain)}).status_code == 400
+
+
+def test_commit_failure_returns_to_original_branch(repo_with_remote, monkeypatch):
+    """A failed commit must not strand the repo on the half-made branch."""
+    path = str(repo_with_remote)
+    original = gitops.current_branch(path)
+    real_git = gitops._git
+
+    def failing_git(p, *args, timeout=30):
+        if args and args[0] == "commit":
+            return subprocess.CompletedProcess(
+                args, 1, stdout="", stderr="no user.name configured"
+            )
+        return real_git(p, *args, timeout=timeout)
+
+    monkeypatch.setattr(gitops, "_git", failing_git)
+    with pytest.raises(RuntimeError, match="commit failed"):
+        gitops.commit_wip_to_branch(path, "doomed")
+
+    monkeypatch.undo()
+    assert gitops.current_branch(path) == original
+    paths = {f["path"] for f in gitops.dirty_files(path)}
+    assert paths == {"main.py", "new_feature.py"}  # work preserved, uncommitted
+
+
+def test_venv_environment_path_uses_existing_layout(tmp_path):
+    """PATH prepends the interpreter dir that actually exists, per venv."""
+    proj = tmp_path / "p"
+    proj.mkdir()
+    venv = make_fake_venv(proj, ".venv")
+    env = gitops._venv_environment(str(venv))
+    expected = venv / ("Scripts" if os.name == "nt" else "bin")
+    assert env["PATH"].split(os.pathsep)[0] == str(expected)
+    assert env["VIRTUAL_ENV"] == str(venv)
+    assert "PYTHONHOME" not in env
+
+
+def test_venv_environment_handles_bin_style_venv(tmp_path):
+    """A bin/-style venv works even when os.name would pick Scripts/."""
+    venv = tmp_path / "env"
+    bindir = venv / "bin"
+    bindir.mkdir(parents=True)
+    (bindir / ("python.exe" if os.name == "nt" else "python")).write_text("")
+    env = gitops._venv_environment(str(venv))
+    assert env["PATH"].split(os.pathsep)[0] == str(bindir)

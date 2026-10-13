@@ -6,6 +6,7 @@ listings stay fast without replaying the log.
 """
 
 import json
+import os
 import sqlite3
 import threading
 from datetime import datetime
@@ -53,6 +54,9 @@ class EventSourcingDB:
 
     def __init__(self, db_path: str = "context_fabric.db"):
         self.db_path = db_path
+        parent = os.path.dirname(os.path.abspath(db_path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row

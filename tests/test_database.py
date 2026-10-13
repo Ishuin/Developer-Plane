@@ -102,3 +102,14 @@ def test_project_list_pagination(db):
     items, total = db.list_projects(limit=20, offset=40)
     assert total == 45
     assert len(items) == 5
+
+
+def test_opens_db_inside_missing_parent_directory(tmp_path):
+    """A db path whose directory does not exist yet is created, not fatal."""
+    from dcp.database import EventSourcingDB
+
+    db_path = tmp_path / "nested" / "deeper" / "fabric.db"
+    database = EventSourcingDB(str(db_path))
+    assert db_path.is_file()
+    database.log_signal("Boot", {"ok": True})
+    database.close()
