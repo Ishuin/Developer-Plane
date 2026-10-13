@@ -279,6 +279,11 @@ const api = async (url, opts) => {
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
   return res.json();
 };
+// Fire-and-forget guard: surfaces the error instead of leaving an
+// unhandled rejection in the console.
+const bg = p => p.catch(err => {
+  document.getElementById('health').textContent = 'error: ' + err.message;
+});
 
 /* Tabs */
 document.getElementById('tabs').addEventListener('click', e => {
@@ -287,18 +292,18 @@ document.getElementById('tabs').addEventListener('click', e => {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tab = e.target.dataset.tab;
   document.getElementById('panel-' + tab).classList.add('active');
-  if (tab === 'projects') loadProjects();
-  else if (tab === 'agents') loadAgents();
-  else if (tab === 'autopilot') loadAutopilot();
-  else if (tab === 'board') { loadBoardProjects(); loadBoard(); loadSelfStatus(); }
-  else loadTrinity(tab);
+  if (tab === 'projects') bg(loadProjects());
+  else if (tab === 'agents') bg(loadAgents());
+  else if (tab === 'autopilot') bg(loadAutopilot());
+  else if (tab === 'board') { bg(loadBoardProjects()); bg(loadBoard()); bg(loadSelfStatus()); }
+  else bg(loadTrinity(tab));
 });
 
 /* Projects */
 let debounceTimer;
 function debouncedProjects() {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => { state.projects.page = 1; loadProjects(); }, 250);
+  debounceTimer = setTimeout(() => { state.projects.page = 1; bg(loadProjects()); }, 250);
 }
 
 async function loadProjects() {
@@ -336,16 +341,20 @@ async function loadProjects() {
 
 function pageStep(delta) {
   state.projects.page = Math.max(1, state.projects.page + delta);
-  loadProjects();
+  bg(loadProjects());
 }
 
 async function clearProjects() {
   if (!confirm('Clear the project registry? (Event log is kept; re-scan to repopulate.)')) return;
-  const res = await api('/api/projects', { method: 'DELETE' });
-  state.projects.page = 1;
-  document.getElementById('detail').style.display = 'none';
-  await Promise.all([loadProjects(), loadTypes()]);
-  document.getElementById('health').textContent = `cleared ${res.removed} project(s)`;
+  try {
+    const res = await api('/api/projects', { method: 'DELETE' });
+    state.projects.page = 1;
+    document.getElementById('detail').style.display = 'none';
+    await Promise.all([loadProjects(), loadTypes()]);
+    document.getElementById('health').textContent = `cleared ${res.removed} project(s)`;
+  } catch (err) {
+    document.getElementById('health').textContent = 'error: ' + err.message;
+  }
 }
 
 let analysisPoll = null;
@@ -526,7 +535,7 @@ async function loadTrinity(kind) {
 
 function trinityStep(kind, delta) {
   state[kind].page = Math.max(1, state[kind].page + delta);
-  loadTrinity(kind);
+  bg(loadTrinity(kind));
 }
 
 /* Agents */
@@ -587,8 +596,13 @@ async function loadBoard() {
 
 async function discardTask(id) {
   if (!confirm('Discard this task? Agents will never pick it up again. (Emergency use only.)')) return;
-  await api(`/api/tasks/${id}/discard`, { method: 'POST' });
-  loadBoard();
+  try {
+    await api(`/api/tasks/${id}/discard`, { method: 'POST' });
+  } catch (err) {
+    alert('Discard failed: ' + err.message);
+    return;
+  }
+  bg(loadBoard());
 }
 
 async function loadSelfStatus() {
@@ -606,11 +620,15 @@ async function loadSelfStatus() {
 
 async function selfCheck() {
   document.getElementById('selfInfo').textContent = 'running daily check…';
-  const res = await api('/api/self/check', { method: 'POST' });
-  await loadSelfStatus();
-  await loadBoard();
-  if (!res.executed) {
-    document.getElementById('selfInfo').textContent += ` — skipped: ${res.reason}`;
+  try {
+    const res = await api('/api/self/check', { method: 'POST' });
+    await loadSelfStatus();
+    bg(loadBoard());
+    if (!res.executed) {
+      document.getElementById('selfInfo').textContent += ` — skipped: ${res.reason}`;
+    }
+  } catch (err) {
+    document.getElementById('selfInfo').textContent = 'error: ' + err.message;
   }
 }
 
@@ -691,7 +709,9 @@ async function wipTest(path) {
     });
     out.textContent = res.ran
       ? `${res.passed ? 'PASSED' : 'FAILED'} (exit ${res.exit_code}) — ${res.command}`
-        + (res.venv ? `\n[venv: ${res.venv}]` : '\n[no venv found — ran with system Python]')
+        + (res.venv ? `\n[venv: ${res.venv}]`
+          : (/^\s*(python|pytest|pip)/.test(res.command)
+            ? '\n[no venv found — ran with system Python]' : ''))
         + `\n\n${res.output}`
       : 'Not run: ' + res.reason;
   } catch (err) {
@@ -741,6 +761,7 @@ async function wipDiscard(path) {
 
 /* Autopilot */
 let apPoll = null;
+let apErrors = 0;
 const pathArg = p => esc(p).replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 
 async function loadAutopilot() {
@@ -785,19 +806,30 @@ async function loadAutopilot() {
 }
 
 async function toggleAuto(path, enabled) {
-  await api('/api/autopilot/enable', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, enabled }),
-  });
-  loadAutopilot();
+  try {
+    await api('/api/autopilot/enable', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, enabled }),
+    });
+  } catch (err) {
+    alert('Could not update automation flag: ' + err.message);
+    return;
+  }
+  bg(loadAutopilot());
 }
 
 async function evalAll() {
-  document.getElementById('apStatus').textContent = 'Scoring all projects…';
-  const res = await api('/api/completion/evaluate_all', { method: 'POST' });
-  document.getElementById('apStatus').textContent =
-    `Scored ${res.evaluated} project(s), ${res.errors} error(s).`;
-  loadAutopilot();
+  const statusEl = document.getElementById('apStatus');
+  statusEl.textContent = 'Scoring all projects…';
+  try {
+    const res = await api('/api/completion/evaluate_all', { method: 'POST' });
+    statusEl.textContent =
+      `Scored ${res.evaluated} project(s), ${res.errors} error(s).`;
+  } catch (err) {
+    statusEl.textContent = 'Scoring failed: ' + err.message;
+    return;
+  }
+  bg(loadAutopilot());
 }
 
 async function runTop() {
@@ -815,13 +847,30 @@ async function runTop() {
   }
   document.getElementById('runTopBtn').disabled = true;
   if (apPoll) clearInterval(apPoll);
+  apErrors = 0;
   apPoll = setInterval(pollAutopilot, 2000);
   pollAutopilot();
 }
 
 async function pollAutopilot() {
-  const s = await api('/api/autopilot/status');
-  await loadAutopilot();
+  let s;
+  try {
+    s = await api('/api/autopilot/status');
+    await loadAutopilot();
+  } catch (err) {
+    apErrors++;
+    if (apErrors < 3) {  // transient blip — keep the batch tracker alive
+      document.getElementById('apStatus').innerHTML =
+        `<span class="spinner"></span> Connection lost, retrying… (${apErrors}/3)`;
+      return;
+    }
+    clearInterval(apPoll);
+    apPoll = null;
+    document.getElementById('runTopBtn').disabled = false;
+    document.getElementById('apStatus').textContent = 'error: ' + err.message;
+    return;
+  }
+  apErrors = 0;
   if (s.running) {
     document.getElementById('apStatus').innerHTML =
       `<span class="spinner"></span> Running agents… ${s.done + s.failed + s.skipped}/${s.total}` +
@@ -861,7 +910,7 @@ async function verdict(id, action) {
   } catch (err) {
     alert('Verdict failed: ' + err.message);
   }
-  loadAutopilot();
+  bg(loadAutopilot());
 }
 
 /* Init */
