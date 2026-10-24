@@ -1,0 +1,16 @@
+venv/
+.venv/
+.git/
+.omc/
+.claude/
+.pytest_cache/
+__pycache__/
+graphify-out/
+research/
+tests/
+context_fabric.db*
+litellm_config.yaml
+llm_connection_testing_curl.txt
+project_status.md
+*.md
+!README.md
