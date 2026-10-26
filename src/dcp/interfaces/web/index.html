@@ -138,6 +138,7 @@
   <button data-tab="agents">Agents</button>
   <button data-tab="autopilot">Autopilot</button>
   <button data-tab="board">Board</button>
+  <button data-tab="demo">Demo</button>
 </nav>
 
 <!-- Projects -->
@@ -243,6 +244,20 @@
   </div>
 </section>
 
+<!-- Demo -->
+<section class="panel" id="panel-demo">
+  <div style="border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 16px;">
+    <h3 style="font-size: 14px; margin-bottom: 10px;">Demo</h3>
+    <p class="muted" style="font-size: 13px; margin-bottom: 10px;">
+      This is a real demo of Developer Control Plane in action.
+    </p>
+    <video controls style="width: 100%; border-radius: 6px; border: 1px solid var(--border);">
+      <source src="/static/brag.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
+  </div>
+</section>
+
 <!-- Autopilot -->
 <section class="panel" id="panel-autopilot">
   <div class="toolbar">
@@ -296,6 +311,7 @@ document.getElementById('tabs').addEventListener('click', e => {
   else if (tab === 'agents') bg(loadAgents());
   else if (tab === 'autopilot') bg(loadAutopilot());
   else if (tab === 'board') { bg(loadBoardProjects()); bg(loadBoard()); bg(loadSelfStatus()); }
+  else if (tab === 'demo') { /* static demo video, no API call needed */ }
   else bg(loadTrinity(tab));
 });
 
