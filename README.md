@@ -20,9 +20,9 @@ This project fixes that with three ideas:
 
 ## Demo
 
-[![Demo video](https://raw.githubusercontent.com/Ishuin/Developer-Plane/main/src/dcp/interfaces/web/brag-thumb.jpg)](https://raw.githubusercontent.com/Ishuin/Developer-Plane/main/src/dcp/interfaces/web/brag.mp4)
+![Developer Control Plane demo](https://raw.githubusercontent.com/Ishuin/Developer-Plane/main/src/dcp/interfaces/web/brag.gif)
 
-Click the image to play the demo.
+Click the GIF to view the full video.
 
 ## Quick start
 
