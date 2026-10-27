@@ -20,7 +20,9 @@ This project fixes that with three ideas:
 
 ## Demo
 
-<video src="https://raw.githubusercontent.com/Ishuin/Developer-Plane/main/src/dcp/interfaces/web/brag.mp4" controls width="600"></video>
+[![Demo video](https://raw.githubusercontent.com/Ishuin/Developer-Plane/main/src/dcp/interfaces/web/brag-thumb.jpg)](https://raw.githubusercontent.com/Ishuin/Developer-Plane/main/src/dcp/interfaces/web/brag.mp4)
+
+Click the image to play the demo.
 
 ## Quick start
 
