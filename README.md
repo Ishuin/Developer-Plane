@@ -20,7 +20,7 @@ This project fixes that with three ideas:
 
 ## Demo
 
-![Developer Control Plane demo](https://raw.githubusercontent.com/Ishuin/Developer-Plane/main/src/dcp/interfaces/web/brag.gif)
+<img src="https://raw.githubusercontent.com/Ishuin/Developer-Plane/main/src/dcp/interfaces/web/brag.gif" alt="Developer Control Plane demo" style="width:100%; max-width:900px; border-radius:8px; border:1px solid #ddd;">
 
 Click the GIF to view the full video.
 
