@@ -18,6 +18,10 @@ This project fixes that with three ideas:
 - **Confidence-calibrated inference**: project stage and completion are expressed with honest uncertainty, not fake certainty.
 - **Propose-only agents**: changes are left uncommitted until you approve; discard reverts automatically.
 
+## Demo
+
+<video src="https://raw.githubusercontent.com/Ishuin/Developer-Plane/main/src/dcp/interfaces/web/brag.mp4" controls width="600"></video>
+
 ## Quick start
 
 ```bash
