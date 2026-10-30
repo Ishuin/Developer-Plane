@@ -84,4 +84,9 @@ python -m pytest tests -q
 
 ## License
 
-AGPL-3.0. See `LICENSE`.
+Developer Control Plane is dual-licensed:
+
+- **Open-source**: AGPL-3.0. See `LICENSE`.
+- **Commercial**: available under a separate commercial license for organizations that cannot use AGPL. See `COMMERCIAL-LICENSE.md`.
+
+This means you can use, modify, and redistribute the open-source version under AGPL-3.0, or obtain a commercial license for proprietary deployments, redistribution with closed integrations, and enterprise terms.
