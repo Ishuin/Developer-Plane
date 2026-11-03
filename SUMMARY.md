@@ -135,8 +135,8 @@ The engine is solid and well tested, and it follows its own architecture rules. 
 - The Tier 1 advisor and AI status analysis are now usable. They were not before.
 
 **Housekeeping still open**
-- `litellm_config.yaml` contains a plaintext NVIDIA key. It is not tracked by git, and it is now gitignored, but the key should be rotated.
-- `SUMMARY.md`, `self_improvement.md`, `LICENSE.gpl3.bak` and the new files are not committed.
+- `litellm_config.yaml` and `llm_connection_testing_curl.txt` hold local credentials. They are untracked and now gitignored.
+- The new files are now committed and merged (see section 12).
 
 **Updated demo-readiness verdict:** about 7.5/10 (was 7/10). The AI tier now works and is configurable from the UI. The remaining gaps are unchanged: no native development agent, no seeded demo data, no auto-analyze, no CI, no scripted demo path.
 
@@ -172,7 +172,7 @@ The engine is solid and well tested, and it follows its own architecture rules. 
 6. **CI workflow** (GitHub Actions running pytest), so the README badge is backed by a pipeline. The suite takes about 2 minutes; mark slow tests.
 7. **API authentication** or a token for non-localhost use. Settings endpoints can now read and change LLM config.
 8. **Container or sandbox isolation for the native agent**, to close the `conftest.py` risk.
-9. **Housekeeping**: rotate the NVIDIA key in `litellm_config.yaml`; commit the new files; delete `LICENSE.gpl3.bak`; refresh the stale `project_status.md`; clear the stale self-improvement entry; update the README test badge (122 to 141).
+9. **Housekeeping**: new files committed and the README test badge updated (done, section 12); still open: refresh the stale `project_status.md` and clear the stale self-improvement entry (both are now gitignored local files).
 
 **C. PRD gaps (blocking "complete" against the spec)**
 10. **Trello or external task sync with an offline queue** (not started).
@@ -209,4 +209,32 @@ Items 1–5 of section 10-A are done.
 
 **New tests:** 8 (demo workspace, reset, agent-mode API, scan callback, unanalyzed-only analysis, dormant stays dormant).
 
-**Updated verdict: about 9/10 for a guided demo.** Remaining before a public release (section 10-B and C): CI workflow, API authentication, sandboxing for the native agent, housekeeping (rotate the NVIDIA key, commit the new files, delete `LICENSE.gpl3.bak`, refresh the README badge to 149), Trello sync, a richer TUI, a metrics view.
+**Updated verdict: about 9/10 for a guided demo.** Remaining before a public release (section 10-B and C): CI workflow, API authentication, container isolation for the native agent, CSRF and Host-header checks on the Settings routes, Trello sync, a richer TUI, a metrics view.
+
+## 12. Update: released to `main` (2026-11-03)
+
+Everything above is merged to `main` through three squash-merged pull requests:
+
+| PR | Content |
+| --- | --- |
+| #1 | LLM Settings UI, native development agent, demo mode, bug fixes, tests, docs |
+| #2 | Native agent sandbox denies `.env` and `.env.*` (read, write, listing); `.env.example` allowed |
+| #3 | The `.env` deny list is case-insensitive (`.ENV` is the same file on Windows and macOS) |
+
+**Repository state:** `.gitignore` cleaned up (secrets, generated files, backups ignored; `.env.example` committed as the template). The README badge and changelog are updated. Tests: 149 passing at the last full run; the two follow-up fixes were checked with the native-agent tests only.
+
+**Security review log** (automated reviews on each change)
+- Settings API: key re-entry required when the provider or base URL changes; control characters rejected; `.env` loader reads `DCP_` keys only. Fixed.
+- Native agent commands: free-form commands replaced by named test runners; child processes get a scrubbed environment. Fixed.
+- Native agent files: `.env` files blocked, case-insensitively. Fixed.
+- **Open, by design:** the native agent can run test code it writes itself, and that code could read files in the project folder. Only container isolation closes this. Until then, use native mode on trusted projects and review every diff.
+- **Open:** the Settings routes have no CSRF or Host-header check (the API has no authentication). Plan: add both together with API authentication.
+
+**Remaining work, in order**
+1. Container isolation for the native agent.
+2. API authentication, with CSRF and Host checks on the Settings routes.
+3. CI workflow (the test run takes about two minutes).
+4. Trello or external task sync with an offline queue.
+5. Richer terminal UI.
+6. Success-metrics view.
+7. Bayesian confidence, or amend the PRD.
