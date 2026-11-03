@@ -9,6 +9,7 @@ from typing import Any, Dict
 
 from dcp.agents.base import Agent, AgentResult, AgentUnavailable
 from dcp.config import Settings
+from dcp.llm import message_text
 
 
 class LangGraphAdvisorAgent(Agent):
@@ -20,22 +21,9 @@ class LangGraphAdvisorAgent(Agent):
         self.settings = settings
 
     def _build_llm(self):
-        if not self.settings.ai_enabled:
-            raise AgentUnavailable("AI tier disabled (set DCP_AI_ENABLED=1)")
-        if not (self.settings.llm_api_key and self.settings.llm_model):
-            raise AgentUnavailable("LLM credentials missing (DCP_LLM_API_KEY / DCP_LLM_MODEL)")
-        try:
-            from langchain_openai import ChatOpenAI
-        except ImportError as exc:
-            raise AgentUnavailable("langchain-openai not installed") from exc
-        kwargs: Dict[str, Any] = {
-            "model": self.settings.llm_model,
-            "api_key": self.settings.llm_api_key,
-            "temperature": 0.2,
-        }
-        if self.settings.llm_api_base:
-            kwargs["base_url"] = self.settings.llm_api_base
-        return ChatOpenAI(**kwargs)
+        from dcp.llm import build_chat_model  # local import: avoid cycle
+
+        return build_chat_model(self.settings)
 
     def _build_graph(self, llm):
         try:
@@ -54,14 +42,14 @@ class LangGraphAdvisorAgent(Agent):
             msg = llm.invoke(
                 "Summarize this project's state in 3 sentences:\n" + state["prompt"]
             )
-            return {"summary": msg.content}
+            return {"summary": message_text(msg.content)}
 
         def assess(state: AdvisorState) -> AdvisorState:
             msg = llm.invoke(
                 "List the top 3 risks for this project, one line each:\n"
                 + state["prompt"]
             )
-            return {"risks": msg.content}
+            return {"risks": message_text(msg.content)}
 
         def recommend(state: AdvisorState) -> AdvisorState:
             msg = llm.invoke(
@@ -69,7 +57,7 @@ class LangGraphAdvisorAgent(Agent):
                 "one line each.\nSummary: " + state.get("summary", "")
                 + "\nRisks: " + state.get("risks", "")
             )
-            return {"recommendations": msg.content}
+            return {"recommendations": message_text(msg.content)}
 
         graph = StateGraph(AdvisorState)
         graph.add_node("summarize", summarize)

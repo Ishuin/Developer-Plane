@@ -218,23 +218,9 @@ class StatusReportAgent(Agent):
         )
 
     def _tier1_status(self, context: Dict[str, Any]) -> ProjectStatus:
-        if not self.settings.ai_enabled:
-            raise AgentUnavailable("AI tier disabled")
-        if not (self.settings.llm_api_key and self.settings.llm_model):
-            raise AgentUnavailable("LLM credentials missing")
-        try:
-            from langchain_openai import ChatOpenAI
-        except ImportError as exc:
-            raise AgentUnavailable("langchain-openai not installed") from exc
+        from dcp.llm import build_chat_model, message_text  # local import: avoid cycle
 
-        kwargs: Dict[str, Any] = {
-            "model": self.settings.llm_model,
-            "api_key": self.settings.llm_api_key,
-            "temperature": 0.2,
-        }
-        if self.settings.llm_api_base:
-            kwargs["base_url"] = self.settings.llm_api_base
-        llm = ChatOpenAI(**kwargs)
+        llm = build_chat_model(self.settings)
 
         path = context["project"]
         digest = collect_project_digest(path)
@@ -252,7 +238,7 @@ class StatusReportAgent(Agent):
             "NEXT: <step 2>\n"
             "NEXT: <step 3>"
         )
-        reply = llm.invoke(prompt).content
+        reply = message_text(llm.invoke(prompt).content)
 
         headline, health, summary, steps = base.headline, base.health, "", []
         for line in reply.splitlines():

@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Settings tab: LLM provider (Anthropic or OpenAI-compatible), API key, connection test, and agent-mode switch; `.env` support
+- Native development agent (`DCP_AGENT_MODE=native`) with sandboxed file tools and fixed test runners; no external CLI needed
+- Demo mode (`--demo`, `--reset-demo`) with isolated database and sample projects; `docs/DEMO.md`
+- Opt-in auto-analyze after scans (`DCP_AUTO_ANALYZE=1`)
+- 27 new tests (149 total)
+
+### Fixed
+- Claude content-block replies crashed status analysis and the advisor
+- Scanning a project no longer resets its idle clock, so dormant projects stay Dormant
+
 ## [0.1.0] - 2026-10-22
 
 ### Added

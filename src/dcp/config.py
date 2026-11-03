@@ -40,6 +40,9 @@ class Settings:
     ai_enabled: bool = field(
         default_factory=lambda: os.environ.get("DCP_AI_ENABLED", "0") == "1"
     )
+    llm_provider: str = field(
+        default_factory=lambda: os.environ.get("DCP_LLM_PROVIDER", "openai")
+    )
     llm_api_base: str = field(
         default_factory=lambda: os.environ.get("DCP_LLM_API_BASE", "")
     )
@@ -75,6 +78,19 @@ class Settings:
             "claude -p --permission-mode acceptEdits",
         )
     )
+    # Demo mode (set by `main.py --demo`) and scan-triggered analysis.
+    demo_mode: bool = field(
+        default_factory=lambda: os.environ.get("DCP_DEMO", "0") == "1"
+    )
+    # Off by default: analysis writes project_status.md into every project.
+    auto_analyze: bool = field(
+        default_factory=lambda: os.environ.get("DCP_AUTO_ANALYZE", "0") == "1"
+    )
+
+    # "cli" runs agent_cmd; "native" uses the built-in LLM tool loop.
+    agent_mode: str = field(
+        default_factory=lambda: os.environ.get("DCP_AGENT_MODE", "cli")
+    )
     agent_timeout: int = field(
         default_factory=lambda: int(os.environ.get("DCP_AGENT_TIMEOUT", "900"))
     )
@@ -87,10 +103,21 @@ class Settings:
         default_factory=lambda: float(os.environ.get("DCP_HALF_LIFE_DAYS", "14"))
     )
 
+    # File the Settings UI persists LLM config to (also read on startup).
+    env_file: str = field(
+        default_factory=lambda: os.environ.get(
+            "DCP_ENV_FILE", str(Path.cwd() / ".env")
+        )
+    )
+
     @property
     def web_dir(self) -> Path:
         return Path(__file__).parent / "interfaces" / "web"
 
 
 def get_settings() -> Settings:
+    """Load .env (real env vars win), then build Settings from the environment."""
+    from dcp.envfile import load_env_file
+
+    load_env_file(Path(os.environ.get("DCP_ENV_FILE", Path.cwd() / ".env")))
     return Settings()
