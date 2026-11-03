@@ -65,7 +65,7 @@ def test_secret_env_files_are_off_limits(project):
     (project / ".env").write_text("KEY=secret")
     (project / ".env.example").write_text("KEY=")
     box = ProjectSandbox(str(project))
-    for name in (".env", ".env.local"):
+    for name in (".env", ".env.local", ".ENV", ".Env.Production"):
         with pytest.raises(ToolError):
             box.read_file(name)
         with pytest.raises(ToolError):

@@ -62,7 +62,8 @@ class ToolError(ValueError):
 
 def _is_secret_file(path: Path) -> bool:
     """True for .env and .env.* files (the template .env.example is allowed)."""
-    return path.name.startswith(SECRET_FILE_PREFIX) and path.name not in SECRET_FILE_ALLOWED
+    name = path.name.casefold()  # .ENV is the same file on case-insensitive filesystems
+    return name.startswith(SECRET_FILE_PREFIX) and name not in SECRET_FILE_ALLOWED
 
 
 class ProjectSandbox:
