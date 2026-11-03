@@ -30,6 +30,8 @@ MAX_COMMAND_OUTPUT_CHARS = 6_000
 COMMAND_TIMEOUT_SECONDS = 120
 REPORT_LIMIT = 8_000
 PROTECTED_DIRS = {".git"}
+SECRET_FILE_PREFIX = ".env"
+SECRET_FILE_ALLOWED = {".env.example"}
 SKIPPED_DIRS = {".git", "node_modules", "__pycache__", "venv", ".venv"}
 # Fixed argv per runner name: the model picks a name, never free-form arguments,
 # so it cannot reach `python -c`, `npx`, `go run`, etc.
@@ -58,6 +60,11 @@ class ToolError(ValueError):
     """Raised when a tool call violates the sandbox or its limits."""
 
 
+def _is_secret_file(path: Path) -> bool:
+    """True for .env and .env.* files (the template .env.example is allowed)."""
+    return path.name.startswith(SECRET_FILE_PREFIX) and path.name not in SECRET_FILE_ALLOWED
+
+
 class ProjectSandbox:
     """File and command operations confined to one project root."""
 
@@ -71,6 +78,8 @@ class ProjectSandbox:
             raise ToolError(f"path escapes the project: {rel}")
         if PROTECTED_DIRS & set(target.relative_to(self.root).parts):
             raise ToolError(f"path is protected: {rel}")
+        if _is_secret_file(target):
+            raise ToolError(f"path is protected: {rel}")
         return target
 
     def list_files(self, rel: str = ".") -> str:
@@ -82,6 +91,8 @@ class ProjectSandbox:
         for dirpath, dirnames, filenames in os.walk(base):
             dirnames[:] = [d for d in dirnames if d not in SKIPPED_DIRS]
             for name in filenames:
+                if _is_secret_file(Path(name)):
+                    continue
                 found.append(str(Path(dirpath, name).relative_to(self.root)))
                 if len(found) >= MAX_LIST_ENTRIES:
                     return "\n".join(found) + "\n…(truncated)"
