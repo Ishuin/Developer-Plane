@@ -61,6 +61,19 @@ def test_sandbox_blocks_escape_and_git(project):
         box.read_file("/etc/passwd")
 
 
+def test_secret_env_files_are_off_limits(project):
+    (project / ".env").write_text("KEY=secret")
+    (project / ".env.example").write_text("KEY=")
+    box = ProjectSandbox(str(project))
+    for name in (".env", ".env.local"):
+        with pytest.raises(ToolError):
+            box.read_file(name)
+        with pytest.raises(ToolError):
+            box.write_file(name, "x")
+    assert box.read_file(".env.example") == "KEY="
+    assert ".env" not in box.list_files().splitlines()
+
+
 def test_only_named_runners_allowed(project):
     box = ProjectSandbox(str(project))
     for bad in ("rm -rf /", "python -c pass", "pytest; calc"):
