@@ -2,7 +2,7 @@
 
 import threading
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from dcp.sentry.discovery import ProjectDiscovery
 
@@ -14,8 +14,10 @@ class ScanInProgress(RuntimeError):
 class ScanManager:
     """Owns at most one running discovery scan and its status snapshot."""
 
-    def __init__(self, discovery: ProjectDiscovery):
+    def __init__(self, discovery: ProjectDiscovery,
+                 on_finished: Optional[Callable[[], None]] = None):
         self.discovery = discovery
+        self._on_finished = on_finished
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
         self._status: Dict[str, Any] = {
@@ -48,6 +50,8 @@ class ScanManager:
     def _run(self, root: str) -> None:
         try:
             self.discovery.scan(root, on_found=self._on_found)
+            if self._on_finished:
+                self._on_finished()
         except Exception as exc:  # noqa: BLE001 - surface any failure in status
             with self._lock:
                 self._status["error"] = str(exc)

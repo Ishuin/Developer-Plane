@@ -73,3 +73,24 @@ def test_inference_is_logged_with_confidence(db):
     inferences = db.get_inferences(limit=1)
     assert inferences[0].inference_type == "ProjectStage"
     assert 0.0 <= inferences[0].confidence_score <= 1.0
+
+
+def test_discovery_signal_does_not_revive_dormant_project(db, tmp_path):
+    import subprocess
+
+    from dcp.cortex.inference import StageInferenceEngine
+
+    proj = tmp_path / "old"
+    proj.mkdir()
+    (proj / "index.html").write_text("x")
+    for args in (("init", "-q"), ("add", "-A")):
+        subprocess.run(["git", "-C", str(proj), *args], capture_output=True, check=True)
+    subprocess.run(
+        ["git", "-C", str(proj), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "i"],
+        capture_output=True, check=True,
+        env={**__import__("os").environ, "GIT_AUTHOR_DATE": "2020-01-01T00:00:00",
+             "GIT_COMMITTER_DATE": "2020-01-01T00:00:00"},
+    )
+    db.log_signal("ProjectDiscovered", {}, project_id=str(proj))
+    result = StageInferenceEngine(db, 14).infer_stage(str(proj))
+    assert result.stage == "Dormant"

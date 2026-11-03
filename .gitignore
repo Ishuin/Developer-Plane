@@ -85,11 +85,23 @@ conda-meta/
 dmypy.json
 
 # Developer Control Plane — local artifacts & secrets (never commit)
-context_fabric.db*
+# Secrets / local config (.env.example is the committed template)
+.env
+.env.*
+!.env.example
 litellm_config.yaml
 llm_connection_testing_curl.txt
-graphify-out/
-.omc/
-project_status.md
+
+# Runtime data and generated files
+context_fabric.db*
 .dcp_server.pid
+.dcp_brief.md
+project_status.md
+self_improvement.md
+.omc/
+.claude/
+graphify-out/
 research/
+
+# Backups
+*.bak

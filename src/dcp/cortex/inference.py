@@ -13,6 +13,9 @@ from dcp.core.models import Genome, StageResult
 from dcp.database import EventSourcingDB
 from dcp.sentry.genome import build_genome
 
+NON_ACTIVITY_SIGNALS = {"ProjectDiscovered"}
+RECENT_SIGNAL_WINDOW = 20
+
 
 class StageInferenceEngine:
     def __init__(self, db: EventSourcingDB, half_life_days: float = 14.0):
@@ -96,7 +99,10 @@ class StageInferenceEngine:
                 )
             except ValueError:
                 pass
-        signals = self.db.get_signals(limit=1, project_id=genome.path)
+        # Being scanned is bookkeeping, not activity: it must not revive a dormant project.
+        signals = [s for s in self.db.get_signals(limit=RECENT_SIGNAL_WINDOW,
+                                                  project_id=genome.path)
+                   if s.event_type not in NON_ACTIVITY_SIGNALS]
         if signals:
             try:
                 candidates.append(datetime.fromisoformat(signals[0].timestamp))

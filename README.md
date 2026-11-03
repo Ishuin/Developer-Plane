@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-green)
-![Tests](https://img.shields.io/badge/tests-122%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-149%20passing-brightgreen)
 
 **The local-first nervous system for your AI coding agents.**
 
@@ -41,6 +41,14 @@ python src/main.py --host 127.0.0.1 --port 8787
 # Open http://127.0.0.1:8787
 ```
 
+## Try the demo
+
+```bash
+python src/main.py --demo --reset-demo
+```
+
+Isolated sample projects and the built-in agent; your real data is untouched. See [docs/DEMO.md](docs/DEMO.md).
+
 ## What you get
 
 - **Discovery** — finds git and non-git projects, ignores system folders, handles monorepos
@@ -65,10 +73,17 @@ All behavior is driven by environment variables with safe defaults.
 | `DCP_WATCH_ROOTS` | *(unset)* | Comma-separated dirs to watch on startup |
 | `DCP_GITHUB_USERS` | `Ishuin` | Your GitHub accounts for `github` classification |
 | `DCP_HALF_LIFE_DAYS` | `14` | Confidence decay half-life |
+| `DCP_AGENT_MODE` | `cli` | `cli` runs `DCP_AGENT_CMD`; `native` uses the built-in agent with your LLM key (no external CLI) |
+| `DCP_AUTO_ANALYZE` | `0` | `1` = analyze new projects automatically after each scan (writes `project_status.md` into them) |
 | `DCP_AGENT_CMD` | `claude -p --permission-mode acceptEdits` | Headless coding agent command |
 | `DCP_AI_ENABLED` | `0` | Enable Tier 1 LangGraph advisor |
+| `DCP_LLM_PROVIDER` | `openai` | `anthropic` or `openai` (OpenAI-compatible hosts via `DCP_LLM_API_BASE`) |
 | `DCP_LLM_API_KEY` | *(unset)* | LLM key when AI is enabled |
+| `DCP_LLM_API_BASE` | *(unset)* | Optional custom endpoint |
+| `DCP_ENV_FILE` | `./.env` | File loaded at startup and written by the Settings tab |
 | `DCP_LLM_MODEL` | *(unset)* | Model name when AI is enabled |
+
+LLM settings can also be edited in the web UI (**Settings** tab). Copy `.env.example` to `.env` to set them by file. Install the AI extras with `pip install -r requirements-ai.txt`.
 
 ## Security notes
 

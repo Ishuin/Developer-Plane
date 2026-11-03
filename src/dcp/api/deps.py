@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dcp.agents import HealthCheckAgent, LangGraphAdvisorAgent
-from dcp.agents.executor import CodeAgentExecutor
+from dcp.agents.mode_executor import ModeSwitchingExecutor
 from dcp.agents.status_agent import StatusReportAgent
 from dcp.config import Settings
 from dcp.cortex import (
@@ -51,24 +51,28 @@ def build_state(settings: Settings) -> AppState:
     assembler = ContextAssembler(db)
     completion = CompletionEngine(db)
     tasks = TaskService(db)
-    executor = CodeAgentExecutor(settings)
+    executor = ModeSwitchingExecutor(settings)
     # The control plane's own repository root (…/src/dcp/api/deps.py → repo).
     home_path = str(Path(__file__).resolve().parents[3])
     self_improvement = SelfImprovementManager(db, tasks, executor, home_path)
+    analysis = AnalysisManager(
+        db, status_agent, inference, assembler,
+        max_workers=settings.analysis_workers,
+        tasks=tasks,
+    )
     return AppState(
         settings=settings,
         db=db,
         discovery=discovery,
-        scanner=ScanManager(discovery),
+        scanner=ScanManager(
+            discovery,
+            on_finished=analysis.start_unanalyzed if settings.auto_analyze else None,
+        ),
         watcher=SentryWatcher(db),
         inference=inference,
         assembler=assembler,
         router=router,
-        analysis=AnalysisManager(
-            db, status_agent, inference, assembler,
-            max_workers=settings.analysis_workers,
-            tasks=tasks,
-        ),
+        analysis=analysis,
         completion=completion,
         autopilot=AutopilotManager(
             db, executor, completion, inference, assembler,

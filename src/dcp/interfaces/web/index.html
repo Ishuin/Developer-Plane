@@ -27,7 +27,7 @@
   h1 span { color: var(--muted); font-weight: 400; }
   #health { font-size: 12px; color: var(--muted); font-family: var(--mono); }
 
-  nav { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+  nav { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
   nav button {
     background: none; border: none; padding: 8px 14px; cursor: pointer;
     font: inherit; font-size: 14px; color: var(--muted);
@@ -139,6 +139,7 @@
   <button data-tab="autopilot">Autopilot</button>
   <button data-tab="board">Board</button>
   <button data-tab="demo">Demo</button>
+  <button data-tab="settings">Settings</button>
 </nav>
 
 <!-- Projects -->
@@ -258,6 +259,46 @@
   </div>
 </section>
 
+<!-- Settings -->
+<section class="panel" id="panel-settings">
+  <div style="border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 16px; max-width: 640px;">
+    <h3 style="font-size: 14px; margin-bottom: 4px;">AI tier (Tier 1)</h3>
+    <p class="muted" style="font-size: 13px; margin-bottom: 14px;">
+      Optional. Without it everything runs offline on deterministic heuristics.
+      Saved to the local .env file; the key is never shown again after saving.
+    </p>
+    <div style="display:grid; gap:10px;">
+      <label><input type="checkbox" id="llmEnabled"> Enable AI tier</label>
+      <label>Provider
+        <select id="llmProvider" onchange="llmProviderChanged()" style="width:100%;">
+          <option value="anthropic">Anthropic (Claude)</option>
+          <option value="openai">OpenAI / OpenAI-compatible</option>
+        </select>
+      </label>
+      <label>Model <input type="text" id="llmModel" style="width:100%;"></label>
+      <label>API key <input type="password" id="llmKey" autocomplete="off" style="width:100%;"></label>
+      <label>API base URL (optional) <input type="text" id="llmBase" placeholder="leave blank for the provider default" style="width:100%;"></label>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; margin-top:14px;">
+      <button class="btn primary" onclick="saveLlm()">Save</button>
+      <button class="btn" onclick="testLlm()">Test connection</button>
+      <span id="llmStatus" class="muted" style="font-size:13px;"></span>
+    </div>
+    <hr style="border:none; border-top:1px solid var(--border); margin:18px 0;">
+    <h3 style="font-size: 14px; margin-bottom: 4px;">Development agent (Autopilot)</h3>
+    <p class="muted" style="font-size: 13px; margin-bottom: 10px;">
+      <b>native</b> uses the built-in agent with the API key above. <b>cli</b> runs the external command (DCP_AGENT_CMD, default Claude Code).
+    </p>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <select id="agentMode" onchange="saveAgentMode()">
+        <option value="native">native (built-in, API key)</option>
+        <option value="cli">cli (external command)</option>
+      </select>
+      <span id="agentModeStatus" class="muted" style="font-size:13px;"></span>
+    </div>
+  </div>
+</section>
+
 <!-- Autopilot -->
 <section class="panel" id="panel-autopilot">
   <div class="toolbar">
@@ -312,6 +353,7 @@ document.getElementById('tabs').addEventListener('click', e => {
   else if (tab === 'autopilot') bg(loadAutopilot());
   else if (tab === 'board') { bg(loadBoardProjects()); bg(loadBoard()); bg(loadSelfStatus()); }
   else if (tab === 'demo') { /* static demo video, no API call needed */ }
+  else if (tab === 'settings') bg(loadLlm());
   else bg(loadTrinity(tab));
 });
 
@@ -929,11 +971,89 @@ async function verdict(id, action) {
   bg(loadAutopilot());
 }
 
+/* Settings: LLM */
+const LLM_MODEL_HINTS = { anthropic: 'claude-sonnet-5-5', openai: 'gpt-4o-mini' };
+const setLlmStatus = (text, ok) => {
+  const el = document.getElementById('llmStatus');
+  el.textContent = text;
+  el.style.color = ok === undefined ? '' : ok ? 'var(--ok, #16a34a)' : '#dc2626';
+};
+const detailText = d => Array.isArray(d) ? d.map(e => e.msg).join('; ') : d;
+
+function llmProviderChanged() {
+  document.getElementById('llmModel').placeholder = LLM_MODEL_HINTS[document.getElementById('llmProvider').value];
+}
+
+async function llmRequest(url, opts) {
+  const res = await fetch(url, opts);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(detailText(body.detail) || res.statusText);
+  return body;
+}
+
+async function loadHeader() {
+  const h = await api('/api/health');
+  const parts = ['v' + h.version + ' · online', 'agent: ' + h.agent_mode];
+  if (h.demo) parts.push('DEMO');
+  document.getElementById('health').textContent = parts.join(' · ');
+}
+
+async function saveAgentMode() {
+  const mode = document.getElementById('agentMode').value;
+  const status = document.getElementById('agentModeStatus');
+  try {
+    await llmRequest('/api/settings/agent', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }),
+    });
+    status.textContent = 'Saved';
+    await loadHeader();
+  } catch (err) { status.textContent = err.message; }
+}
+
+async function loadLlm() {
+  const a = await llmRequest('/api/settings/agent');
+  document.getElementById('agentMode').value = a.mode;
+  const s = await llmRequest('/api/settings/llm');
+  document.getElementById('llmEnabled').checked = s.enabled;
+  document.getElementById('llmProvider').value = s.provider;
+  document.getElementById('llmModel').value = s.model;
+  document.getElementById('llmBase').value = s.api_base;
+  document.getElementById('llmKey').value = '';
+  document.getElementById('llmKey').placeholder = s.has_key ? `saved (${s.key_hint}) — leave blank to keep` : 'paste API key';
+  llmProviderChanged();
+  setLlmStatus('');
+}
+
+async function saveLlm() {
+  const key = document.getElementById('llmKey').value.trim();
+  const payload = {
+    enabled: document.getElementById('llmEnabled').checked,
+    provider: document.getElementById('llmProvider').value,
+    model: document.getElementById('llmModel').value,
+    api_base: document.getElementById('llmBase').value,
+    api_key: key === '' ? null : key,
+  };
+  try {
+    await llmRequest('/api/settings/llm', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    await loadLlm();
+    setLlmStatus('Saved', true);
+  } catch (err) { setLlmStatus(err.message, false); }
+}
+
+async function testLlm() {
+  setLlmStatus('Testing…');
+  try {
+    const r = await llmRequest('/api/settings/llm/test', { method: 'POST' });
+    setLlmStatus('Connected — model replied: ' + r.reply, true);
+  } catch (err) { setLlmStatus(err.message, false); }
+}
+
 /* Init */
 (async () => {
   try {
-    const h = await api('/api/health');
-    document.getElementById('health').textContent = 'v' + h.version + ' · online';
+    await loadHeader();
   } catch { document.getElementById('health').textContent = 'offline'; }
   loadProjects().catch(() => {});
   loadTypes().catch(() => {});

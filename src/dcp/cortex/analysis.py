@@ -72,6 +72,17 @@ class AnalysisManager:
             self._thread.start()
         return self.status()
 
+    def start_unanalyzed(self) -> None:
+        """Analyze only projects with no report yet; no-op if a batch is running."""
+        items, _ = self.db.list_projects(limit=100000, offset=0)
+        pending = [p.path for p in items if not p.analyzed_at]
+        if not pending:
+            return
+        try:
+            self.start(pending)
+        except AnalysisInProgress:
+            logger.info("Auto-analyze skipped: a batch is already running")
+
     def status(self) -> Dict[str, Any]:
         with self._lock:
             snapshot = dict(self._status)
